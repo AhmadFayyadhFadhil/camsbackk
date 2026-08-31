@@ -87,13 +87,15 @@ class TaskGeneratorService
 
             // 5. Buat task
             Task::create([
-                'schedule_id'  => $schedule->id,
-                'room_id'      => $schedule->room_id,
-                'cs_user_id'   => $assignment?->cs_user_id,
-                'shift_id'     => $schedule->shift_id,
-                'tanggal_task' => $targetDate->toDateString(),
-                'status'       => \App\Enums\TaskStatusEnum::PENDING,
-                'due_datetime' => $due,
+                'schedule_id'        => $schedule->id,
+                'room_id'            => $schedule->room_id,
+                'cs_user_id'         => $assignment?->cs_user_id,
+                'shift_id'           => $schedule->shift_id,
+                'tanggal_task'       => $targetDate->toDateString(),
+                'target_jam_mulai'   => $schedule->target_jam_mulai,
+                'target_jam_selesai' => $schedule->target_jam_selesai,
+                'status'             => \App\Enums\TaskStatusEnum::PENDING,
+                'due_datetime'       => $due,
             ]);
             
             $generated++;

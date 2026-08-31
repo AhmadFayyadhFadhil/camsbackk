@@ -149,6 +149,9 @@ class TaskController extends Controller
             })->filter()->values()->toArray();
 
             return $rep;
+        })->sortBy(function($task) {
+            $jam = $task->target_jam_mulai ?: ($task->schedule?->target_jam_mulai ?: '99:99');
+            return $jam . '_' . ($task->room?->nama_ruangan ?? '');
         })->values();
 
         return $this->success(TaskResource::collection($groupedTasks), 'Daftar tugas Anda hari ini berhasil diambil.');

@@ -21,6 +21,8 @@ class Task extends Model
         'cs_user_id',
         'shift_id',
         'tanggal_task',
+        'target_jam_mulai',
+        'target_jam_selesai',
         'status',
         'due_datetime',
     ];

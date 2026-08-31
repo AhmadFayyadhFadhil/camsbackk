@@ -22,6 +22,10 @@ class Schedule extends Model
         'frekuensi',
         'hari_minggu',
         'tanggal_bulan',
+        'target_jam_mulai',
+        'target_jam_selesai',
+        'estimasi_durasi_menit',
+        'urutan',
         'is_active',
     ];
 
@@ -29,6 +33,8 @@ class Schedule extends Model
         'frekuensi' => FrequencyEnum::class,
         'hari_minggu' => 'integer',
         'tanggal_bulan' => 'integer',
+        'estimasi_durasi_menit' => 'integer',
+        'urutan' => 'integer',
         'is_active' => 'boolean',
     ];
 

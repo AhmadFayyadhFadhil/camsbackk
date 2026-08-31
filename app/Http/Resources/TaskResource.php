@@ -22,6 +22,8 @@ class TaskResource extends JsonResource
             'nama_shift' => $this->shift?->nama_shift,
             'tanggal_task' => $this->tanggal_task?->toDateString(),
             'task_date' => $this->tanggal_task?->toDateString(),
+            'target_jam_mulai' => $this->target_jam_mulai ? substr($this->target_jam_mulai, 0, 5) : ($this->schedule?->target_jam_mulai ? substr($this->schedule->target_jam_mulai, 0, 5) : null),
+            'target_jam_selesai' => $this->target_jam_selesai ? substr($this->target_jam_selesai, 0, 5) : ($this->schedule?->target_jam_selesai ? substr($this->schedule->target_jam_selesai, 0, 5) : null),
             'status' => $this->status->value,
             'due_datetime' => $this->due_datetime?->toIso8601String(),
             'items_count' => $this->items_count ?? 1,
