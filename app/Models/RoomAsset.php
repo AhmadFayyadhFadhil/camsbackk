@@ -19,8 +19,12 @@ class RoomAsset extends Model
         'room_id',
         'nama_aset',
         'kode_aset',
-        'merk',
+        'jumlah',
         'status', // active, damaged, repaired
+    ];
+
+    protected $casts = [
+        'jumlah' => 'integer',
     ];
 
     public function room(): BelongsTo

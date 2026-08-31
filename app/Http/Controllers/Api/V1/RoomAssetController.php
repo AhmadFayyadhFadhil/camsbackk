@@ -35,8 +35,7 @@ class RoomAssetController extends Controller
             $search = $request->get('search');
             $query->where(function ($q) use ($search) {
                 $q->where('nama_aset', 'like', "%{$search}%")
-                  ->orWhere('kode_aset', 'like', "%{$search}%")
-                  ->orWhere('merk', 'like', "%{$search}%");
+                  ->orWhere('kode_aset', 'like', "%{$search}%");
             });
         }
 
@@ -61,7 +60,7 @@ class RoomAssetController extends Controller
                 'assets' => ['required', 'array', 'min:1'],
                 'assets.*.nama_aset' => ['required', 'string', 'max:255'],
                 'assets.*.kode_aset' => ['required', 'string', 'max:100', 'distinct', 'unique:room_assets,kode_aset'],
-                'assets.*.merk' => ['nullable', 'string', 'max:255'],
+                'assets.*.jumlah' => ['nullable', 'integer', 'min:1'],
                 'assets.*.status' => ['nullable', 'string', 'in:active,damaged,repaired'],
             ]);
 
@@ -74,7 +73,7 @@ class RoomAssetController extends Controller
                         'room_id' => $roomId,
                         'nama_aset' => trim($item['nama_aset']),
                         'kode_aset' => trim($item['kode_aset']),
-                        'merk' => isset($item['merk']) && trim($item['merk']) !== '' ? trim($item['merk']) : null,
+                        'jumlah' => isset($item['jumlah']) && $item['jumlah'] !== '' ? (int)$item['jumlah'] : 1,
                         'status' => $item['status'] ?? 'active',
                     ]);
                     $asset->load('room');
@@ -95,7 +94,7 @@ class RoomAssetController extends Controller
             'room_id' => ['required', 'uuid', 'exists:rooms,id'],
             'nama_aset' => ['required', 'string', 'max:255'],
             'kode_aset' => ['required', 'string', 'max:100', 'unique:room_assets,kode_aset'],
-            'merk' => ['nullable', 'string', 'max:255'],
+            'jumlah' => ['nullable', 'integer', 'min:1'],
             'status' => ['nullable', 'string', 'in:active,damaged,repaired'],
         ]);
 
@@ -104,7 +103,7 @@ class RoomAssetController extends Controller
             'room_id' => $request->room_id,
             'nama_aset' => trim($request->nama_aset),
             'kode_aset' => trim($request->kode_aset),
-            'merk' => $request->merk ? trim($request->merk) : null,
+            'jumlah' => $request->filled('jumlah') ? (int)$request->jumlah : 1,
             'status' => $request->input('status', 'active'),
         ]);
 
@@ -136,11 +135,11 @@ class RoomAssetController extends Controller
             'room_id' => ['sometimes', 'required', 'uuid', 'exists:rooms,id'],
             'nama_aset' => ['sometimes', 'required', 'string', 'max:255'],
             'kode_aset' => ['sometimes', 'required', 'string', 'max:100', 'unique:room_assets,kode_aset,' . $id],
-            'merk' => ['nullable', 'string', 'max:255'],
+            'jumlah' => ['nullable', 'integer', 'min:1'],
             'status' => ['sometimes', 'required', 'string', 'in:active,damaged,repaired'],
         ]);
 
-        $asset->update($request->only(['room_id', 'nama_aset', 'kode_aset', 'merk', 'status']));
+        $asset->update($request->only(['room_id', 'nama_aset', 'kode_aset', 'jumlah', 'status']));
         $asset->load('room');
 
         AuditLogService::log('UPDATE_ROOM_ASSET', 'room_assets', $asset->id, $oldData, $asset->toArray());

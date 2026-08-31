@@ -16,7 +16,7 @@ class RoomAssetResource extends JsonResource
             'room_code' => $this->room?->kode_ruangan,
             'nama_aset' => $this->nama_aset,
             'kode_aset' => $this->kode_aset,
-            'merk' => $this->merk,
+            'jumlah' => $this->jumlah ?? 1,
             'status' => $this->status, // active, damaged, repaired
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
