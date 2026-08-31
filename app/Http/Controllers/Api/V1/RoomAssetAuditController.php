@@ -306,7 +306,7 @@ class RoomAssetAuditController extends Controller
         $user = $request->user();
         $oldData = $audit->toArray();
 
-        $audit = DB::transaction(function () use ($request, $audit, $user) {
+        $audit = DB::transaction(function () use ($request, $audit, $user, $oldData) {
             $status = $request->status;
 
             $audit->update([
