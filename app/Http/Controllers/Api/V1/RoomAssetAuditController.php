@@ -468,24 +468,120 @@ class RoomAssetAuditController extends Controller
     }
 
     /**
-     * GET /room-asset-audits/{auditId}/items/{itemId}/foto
-     * Stream foto bukti temuan item audit secara aman
+     * PUT /room-asset-audits/{id}
+     * Supervisor / Admin mengedit data hasil audit
      */
-    public function streamFoto($auditId, $itemId)
+    public function update(Request $request, $id)
     {
-        $item = RoomAssetAuditItem::where('room_asset_audit_id', $auditId)->findOrFail($itemId);
+        $audit = RoomAssetAudit::with(['items.asset', 'room.building', 'auditor'])->findOrFail($id);
+        $oldData = $audit->toArray();
 
-        if (!$item->foto_bukti || !Storage::disk('public')->exists($item->foto_bukti)) {
-            return response()->json(['message' => 'Foto bukti tidak ditemukan.'], 404);
-        }
-
-        $filePath = Storage::disk('public')->path($item->foto_bukti);
-        $mimeType = mime_content_type($filePath) ?: 'image/jpeg';
-
-        return response()->file($filePath, [
-            'Content-Type' => $mimeType,
-            'Cache-Control' => 'no-cache, private',
+        $request->validate([
+            'periode' => ['nullable', 'string', 'max:30'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+            'items' => ['sometimes', 'required', 'array', 'min:1'],
+            'items.*.room_asset_id' => ['required_with:items', 'uuid', 'exists:room_assets,id'],
+            'items.*.jumlah_actual' => ['required_with:items', 'integer', 'min:0'],
+            'items.*.kondisi' => ['required_with:items', 'string', 'in:good,damaged,missing'],
+            'items.*.catatan' => ['nullable', 'string', 'max:500'],
         ]);
+
+        $audit = DB::transaction(function () use ($request, $audit) {
+            $updateData = [];
+            if ($request->filled('periode')) {
+                $updateData['periode'] = trim($request->periode);
+            }
+            if ($request->has('notes')) {
+                $updateData['notes'] = $request->notes;
+            }
+
+            if ($request->has('items') && is_array($request->items)) {
+                $totalExpected = 0;
+                $totalActual = 0;
+                $hasDiscrepancy = false;
+
+                $existingItemsMap = $audit->items->keyBy('room_asset_id');
+
+                foreach ($request->items as $idx => $itemData) {
+                    $assetId = $itemData['room_asset_id'];
+                    $actualQty = (int)$itemData['jumlah_actual'];
+                    $kondisi = $itemData['kondisi'] ?? 'good';
+                    $catatan = $itemData['catatan'] ?? null;
+
+                    $existingItem = $existingItemsMap->get($assetId);
+                    $expectedQty = $existingItem ? (int)$existingItem->jumlah_expected : 1;
+
+                    $totalExpected += $expectedQty;
+                    $totalActual += $actualQty;
+
+                    if ($actualQty !== $expectedQty || $kondisi !== 'good') {
+                        $hasDiscrepancy = true;
+                    }
+
+                    // Handle photo upload if provided
+                    $fotoPath = $existingItem ? $existingItem->foto_bukti : null;
+                    $fileKey = "items.{$idx}.foto_bukti";
+                    $directKey = "foto_bukti_{$assetId}";
+                    if ($request->hasFile($fileKey)) {
+                        $fotoPath = $request->file($fileKey)->store('asset_audits', 'public');
+                    } elseif ($request->hasFile($directKey)) {
+                        $fotoPath = $request->file($directKey)->store('asset_audits', 'public');
+                    }
+
+                    if ($existingItem) {
+                        $existingItem->update([
+                            'jumlah_actual' => $actualQty,
+                            'kondisi' => $kondisi,
+                            'foto_bukti' => $fotoPath,
+                            'catatan' => $catatan,
+                        ]);
+                    } else {
+                        RoomAssetAuditItem::create([
+                            'id' => (string) Str::uuid(),
+                            'room_asset_audit_id' => $audit->id,
+                            'room_asset_id' => $assetId,
+                            'jumlah_expected' => $expectedQty,
+                            'jumlah_actual' => $actualQty,
+                            'kondisi' => $kondisi,
+                            'foto_bukti' => $fotoPath,
+                            'catatan' => $catatan,
+                        ]);
+                    }
+                }
+
+                $updateData['total_expected'] = $totalExpected;
+                $updateData['total_actual'] = $totalActual;
+                $updateData['has_discrepancy'] = $hasDiscrepancy;
+            }
+
+            $audit->update($updateData);
+            $audit->load(['room.building', 'auditor', 'verifier', 'items.asset']);
+
+            AuditLogService::log('UPDATE_ASSET_AUDIT', 'room_asset_audits', $audit->id, $oldData, $audit->toArray());
+
+            return $audit;
+        });
+
+        return $this->success(
+            new RoomAssetAuditResource($audit),
+            'Laporan audit aset ruangan berhasil diperbarui.'
+        );
+    }
+
+    /**
+     * DELETE /room-asset-audits/{id}
+     * Supervisor / Admin menghapus riwayat audit
+     */
+    public function destroy($id)
+    {
+        $audit = RoomAssetAudit::findOrFail($id);
+        $oldData = $audit->toArray();
+
+        $audit->delete();
+
+        AuditLogService::log('DELETE_ASSET_AUDIT', 'room_asset_audits', $audit->id, $oldData, null);
+
+        return $this->success(null, 'Riwayat audit aset ruangan berhasil dihapus.');
     }
 }
 

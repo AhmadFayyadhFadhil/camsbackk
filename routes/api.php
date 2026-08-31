@@ -136,6 +136,8 @@ Route::prefix('v1')->group(function () {
         Route::get('room-asset-audits', [RoomAssetAuditController::class, 'index']);
         Route::get('room-asset-audits/{id}', [RoomAssetAuditController::class, 'show']);
         Route::post('room-asset-audits', [RoomAssetAuditController::class, 'store']);
+        Route::put('room-asset-audits/{id}', [RoomAssetAuditController::class, 'update'])->middleware('role:admin,supervisor');
+        Route::delete('room-asset-audits/{id}', [RoomAssetAuditController::class, 'destroy'])->middleware('role:admin,supervisor');
         Route::post('room-asset-audits/{id}/verify', [RoomAssetAuditController::class, 'verify'])->middleware('role:admin,supervisor');
         Route::get('room-asset-audits/{auditId}/items/{itemId}/foto', [RoomAssetAuditController::class, 'streamFoto']);
 
