@@ -26,6 +26,12 @@ class RoomResource extends JsonResource
             ] : null,
             'is_active' => (bool)$this->is_active,
             
+            // Asset Audit Scheduling
+            'asset_audit_interval' => $this->asset_audit_interval ?? 'bimonthly',
+            'asset_audit_interval_days' => $this->asset_audit_interval_days ?? 60,
+            'last_asset_audit_at' => $this->last_asset_audit_at?->toIso8601String(),
+            'next_asset_audit_due' => $this->next_asset_audit_due ? $this->next_asset_audit_due->toDateString() : null,
+
             // Frontend expected parameters
             'name' => $this->nama_ruangan,
             'code' => $this->kode_ruangan,

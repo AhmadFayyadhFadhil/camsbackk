@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\V1\RoomAssetController;
 use App\Http\Controllers\Api\V1\CleaningMaterialController;
 use App\Http\Controllers\Api\V1\SlaParameterController;
 use App\Http\Controllers\Api\V1\AdhocTaskController;
+use App\Http\Controllers\Api\V1\RoomAssetAuditController;
 
 Route::prefix('v1')->group(function () {
     // 1. Auth Rute Publik (Dilindungi Rate Limiting Login)
@@ -128,6 +129,15 @@ Route::prefix('v1')->group(function () {
         Route::get('sla-parameters/{id}', [SlaParameterController::class, 'show']);
         Route::get('shifts', [ShiftController::class, 'index']);
         Route::get('shifts/{id}', [ShiftController::class, 'show']);
+
+        // Modul Audit & Stock Opname Aset Ruangan Berkala
+        Route::get('room-asset-audits/schedule-summary', [RoomAssetAuditController::class, 'scheduleSummary']);
+        Route::put('rooms/{id}/asset-audit-schedule', [RoomAssetAuditController::class, 'updateSchedule'])->middleware('role:admin,supervisor');
+        Route::get('room-asset-audits', [RoomAssetAuditController::class, 'index']);
+        Route::get('room-asset-audits/{id}', [RoomAssetAuditController::class, 'show']);
+        Route::post('room-asset-audits', [RoomAssetAuditController::class, 'store']);
+        Route::post('room-asset-audits/{id}/verify', [RoomAssetAuditController::class, 'verify'])->middleware('role:admin,supervisor');
+        Route::get('room-asset-audits/{auditId}/items/{itemId}/foto', [RoomAssetAuditController::class, 'streamFoto']);
 
         // Modul Tugas Ad-hoc (Instant Tasks)
         Route::get('adhoc-tasks', [AdhocTaskController::class, 'index']);

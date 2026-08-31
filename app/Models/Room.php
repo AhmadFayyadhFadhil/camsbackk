@@ -25,6 +25,10 @@ class Room extends Model
         'qr_code_token',
         'qr_code_image',
         'is_active',
+        'asset_audit_interval',
+        'asset_audit_interval_days',
+        'last_asset_audit_at',
+        'next_asset_audit_due',
     ];
 
     protected $hidden = [
@@ -33,6 +37,9 @@ class Room extends Model
 
     protected $casts = [
         'is_active' => 'boolean',
+        'asset_audit_interval_days' => 'integer',
+        'last_asset_audit_at' => 'datetime',
+        'next_asset_audit_due' => 'date',
     ];
 
     public function building(): BelongsTo
@@ -53,6 +60,11 @@ class Room extends Model
     public function assets(): HasMany
     {
         return $this->hasMany(RoomAsset::class, 'room_id');
+    }
+
+    public function assetAudits(): HasMany
+    {
+        return $this->hasMany(RoomAssetAudit::class, 'room_id');
     }
 
     public function picHistories(): HasMany
