@@ -23,11 +23,17 @@ class RoomAssetController extends Controller
     {
         $query = RoomAsset::query()->with('room');
 
-        if ($request->has('room_id')) {
+        if ($request->has('room_id') && $request->filled('room_id')) {
             $query->where('room_id', $request->get('room_id'));
         }
 
-        if ($request->has('status')) {
+        if ($request->has('building_id') && $request->filled('building_id')) {
+            $query->whereHas('room', function ($q) use ($request) {
+                $q->where('building_id', $request->get('building_id'));
+            });
+        }
+
+        if ($request->has('status') && $request->filled('status')) {
             $query->where('status', $request->get('status'));
         }
 
