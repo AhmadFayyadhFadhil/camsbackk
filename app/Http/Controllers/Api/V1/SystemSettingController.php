@@ -28,33 +28,36 @@ class SystemSettingController extends Controller
      */
     public function publicSettings()
     {
-        $keys = ['company_name', 'company_logo', 'app_footer_text', 'company_description'];
-        $settings = SystemSetting::whereIn('key', $keys)->get();
-        
-        $result = [];
-        foreach ($keys as $key) {
-            $setting = $settings->firstWhere('key', $key);
-            $value = $setting ? $setting->value : null;
+        $result = Cache::remember('cams_public_settings_cache', 300, function () {
+            $keys = ['company_name', 'company_logo', 'app_footer_text', 'company_description'];
+            $settings = SystemSetting::whereIn('key', $keys)->get();
             
-            if ($key === 'company_name' && empty($value)) {
-                $value = 'CAMS PANDAAN';
-            }
-            if ($key === 'company_description' && empty($value)) {
-                $value = 'Cleaning Activity Monitor';
-            }
-            if ($key === 'app_footer_text' && empty($value)) {
-                $value = '© 2026 CAMS Pandaan. All rights reserved.';
-            }
-            if ($key === 'company_logo') {
-                if (!empty($value)) {
-                    $value = url('api/v1/settings/logo/image');
-                } else {
-                    $value = null;
+            $res = [];
+            foreach ($keys as $key) {
+                $setting = $settings->firstWhere('key', $key);
+                $value = $setting ? $setting->value : null;
+                
+                if ($key === 'company_name' && empty($value)) {
+                    $value = 'CAMS PANDAAN';
                 }
+                if ($key === 'company_description' && empty($value)) {
+                    $value = 'Cleaning Activity Monitor';
+                }
+                if ($key === 'app_footer_text' && empty($value)) {
+                    $value = '© 2026 CAMS Pandaan. All rights reserved.';
+                }
+                if ($key === 'company_logo') {
+                    if (!empty($value)) {
+                        $value = url('api/v1/settings/logo/image');
+                    } else {
+                        $value = null;
+                    }
+                }
+                
+                $res[$key] = $value;
             }
-            
-            $result[$key] = $value;
-        }
+            return $res;
+        });
         
         return $this->success($result, 'Pengaturan publik berhasil diambil.');
     }
@@ -124,6 +127,7 @@ class SystemSettingController extends Controller
         ]);
         
         Cache::forget("system_setting:company_logo");
+        Cache::forget('cams_public_settings_cache');
         
         return $this->success([
             'logo_url' => url('api/v1/settings/logo/image')
@@ -156,6 +160,8 @@ class SystemSettingController extends Controller
                 Cache::forget("system_setting:{$item['key']}");
             }
         }
+        
+        Cache::forget('cams_public_settings_cache');
 
         return $this->success(null, 'Pengaturan sistem berhasil diperbarui.');
     }

@@ -49,22 +49,44 @@ class DashboardController extends Controller
             $completedTasks = (clone $taskQuery)->where('status', TaskStatusEnum::COMPLETED)->count();
             $complianceRate = $totalTasks > 0 ? round(($completedTasks / $totalTasks) * 100, 2) : 0.0;
 
-            // 3. Breakdown Kepatuhan per Gedung
-            $buildingsData = Building::where('is_active', true)->get()->map(function ($building) use ($dateFrom, $dateTo) {
-                $roomIds = $building->rooms()->pluck('id');
-                $bTasksQuery = Task::whereIn('room_id', $roomIds)->whereBetween('tanggal_task', [$dateFrom, $dateTo]);
-                $bTotal = (clone $bTasksQuery)->count();
-                $bCompleted = (clone $bTasksQuery)->where('status', TaskStatusEnum::COMPLETED)->count();
-                $bCompliance = $bTotal > 0 ? round(($bCompleted / $bTotal) * 100, 2) : 0.0;
+            // 3. Breakdown Kepatuhan per Gedung (Single Consolidated SQL Query)
+            $buildingsRaw = DB::table('buildings as b')
+                ->leftJoin('rooms as r', function ($join) {
+                    $join->on('r.building_id', '=', 'b.id')
+                         ->where('r.is_active', '=', 1)
+                         ->whereNull('r.deleted_at');
+                })
+                ->leftJoin('tasks as t', function ($join) use ($dateFrom, $dateTo) {
+                    $join->on('t.room_id', '=', 'r.id')
+                         ->whereBetween('t.tanggal_task', [$dateFrom, $dateTo]);
+                })
+                ->where('b.is_active', true)
+                ->whereNull('b.deleted_at')
+                ->select(
+                    'b.id as building_id',
+                    'b.nama_gedung as building_name',
+                    'b.kode_gedung as building_code',
+                    DB::raw('COUNT(DISTINCT r.id) as total_rooms'),
+                    DB::raw('COUNT(t.id) as total_tasks'),
+                    DB::raw('SUM(CASE WHEN t.status = "completed" THEN 1 ELSE 0 END) as completed_tasks')
+                )
+                ->groupBy('b.id', 'b.nama_gedung', 'b.kode_gedung')
+                ->orderBy('b.nama_gedung')
+                ->get();
+
+            $buildingsData = $buildingsRaw->map(function ($b) {
+                $totalTasks = (int) $b->total_tasks;
+                $completed = (int) $b->completed_tasks;
+                $compliance = $totalTasks > 0 ? round(($completed / $totalTasks) * 100, 2) : 0.0;
 
                 return [
-                    'building_id' => $building->id,
-                    'building_name' => $building->nama_gedung,
-                    'building_code' => $building->kode_gedung,
-                    'total_rooms' => $building->rooms()->count(),
-                    'total_tasks' => $bTotal,
-                    'completed_tasks' => $bCompleted,
-                    'compliance_rate' => $bCompliance,
+                    'building_id' => $b->building_id,
+                    'building_name' => $b->building_name,
+                    'building_code' => $b->building_code,
+                    'total_rooms' => (int) $b->total_rooms,
+                    'total_tasks' => $totalTasks,
+                    'completed_tasks' => $completed,
+                    'compliance_rate' => $compliance,
                 ];
             });
 
@@ -77,7 +99,10 @@ class DashboardController extends Controller
             // 6. Tugas Overdue Terbaru (limit 5)
             $recentOverdueTasks = Task::where('status', TaskStatusEnum::OVERDUE)
                 ->whereBetween('tanggal_task', [$dateFrom, $dateTo])
-                ->with(['room', 'cs'])
+                ->with([
+                    'room:id,nama_ruangan,kode_ruangan',
+                    'cs:id,full_name,username'
+                ])
                 ->orderBy('due_datetime', 'desc')
                 ->take(5)
                 ->get()
@@ -86,7 +111,7 @@ class DashboardController extends Controller
                     'room_name' => $t->room?->nama_ruangan,
                     'cs_name' => $t->cs?->full_name ?? 'Belum Ditugaskan',
                     'due_datetime' => $t->due_datetime?->toDateTimeString(),
-                    'task_date' => $t->tanggal_task->toDateString(),
+                    'task_date' => $t->tanggal_task instanceof Carbon ? $t->tanggal_task->toDateString() : (string) $t->tanggal_task,
                 ]);
 
             return [
@@ -152,24 +177,45 @@ class DashboardController extends Controller
             $completedTasks = (clone $taskQuery)->where('status', TaskStatusEnum::COMPLETED)->count();
             $complianceRate = $totalTasks > 0 ? round(($completedTasks / $totalTasks) * 100, 2) : 0.0;
 
-            // 3. Breakdown per Gedung (terbatas ruangan kelolaan)
-            $buildingIds = Room::whereIn('id', $roomIds)->distinct('building_id')->pluck('building_id')->toArray();
-            $buildingsData = Building::whereIn('id', $buildingIds)->get()->map(function ($building) use ($roomIds, $dateFrom, $dateTo) {
-                // Hanya hitung ruangan kelolaan PIC yang berada di gedung ini
-                $bRoomIds = Room::whereIn('id', $roomIds)->where('building_id', $building->id)->pluck('id');
-                $bTasksQuery = Task::whereIn('room_id', $bRoomIds)->whereBetween('tanggal_task', [$dateFrom, $dateTo]);
-                $bTotal = (clone $bTasksQuery)->count();
-                $bCompleted = (clone $bTasksQuery)->where('status', TaskStatusEnum::COMPLETED)->count();
-                $bCompliance = $bTotal > 0 ? round(($bCompleted / $bTotal) * 100, 2) : 0.0;
+            // 3. Breakdown per Gedung (Single Consolidated SQL Query terbatas ruangan kelolaan)
+            $buildingsRaw = DB::table('buildings as b')
+                ->join('rooms as r', function ($join) use ($roomIds) {
+                    $join->on('r.building_id', '=', 'b.id')
+                         ->whereIn('r.id', $roomIds)
+                         ->where('r.is_active', '=', 1)
+                         ->whereNull('r.deleted_at');
+                })
+                ->leftJoin('tasks as t', function ($join) use ($dateFrom, $dateTo) {
+                    $join->on('t.room_id', '=', 'r.id')
+                         ->whereBetween('t.tanggal_task', [$dateFrom, $dateTo]);
+                })
+                ->where('b.is_active', true)
+                ->whereNull('b.deleted_at')
+                ->select(
+                    'b.id as building_id',
+                    'b.nama_gedung as building_name',
+                    'b.kode_gedung as building_code',
+                    DB::raw('COUNT(DISTINCT r.id) as total_rooms'),
+                    DB::raw('COUNT(t.id) as total_tasks'),
+                    DB::raw('SUM(CASE WHEN t.status = "completed" THEN 1 ELSE 0 END) as completed_tasks')
+                )
+                ->groupBy('b.id', 'b.nama_gedung', 'b.kode_gedung')
+                ->orderBy('b.nama_gedung')
+                ->get();
+
+            $buildingsData = $buildingsRaw->map(function ($b) {
+                $totalTasks = (int) $b->total_tasks;
+                $completed = (int) $b->completed_tasks;
+                $compliance = $totalTasks > 0 ? round(($completed / $totalTasks) * 100, 2) : 0.0;
 
                 return [
-                    'building_id' => $building->id,
-                    'building_name' => $building->nama_gedung,
-                    'building_code' => $building->kode_gedung,
-                    'total_rooms' => count($bRoomIds),
-                    'total_tasks' => $bTotal,
-                    'completed_tasks' => $bCompleted,
-                    'compliance_rate' => $bCompliance,
+                    'building_id' => $b->building_id,
+                    'building_name' => $b->building_name,
+                    'building_code' => $b->building_code,
+                    'total_rooms' => (int) $b->total_rooms,
+                    'total_tasks' => $totalTasks,
+                    'completed_tasks' => $completed,
+                    'compliance_rate' => $compliance,
                 ];
             });
 
@@ -187,7 +233,10 @@ class DashboardController extends Controller
             $recentOverdueTasks = Task::where('status', TaskStatusEnum::OVERDUE)
                 ->whereIn('room_id', $roomIds)
                 ->whereBetween('tanggal_task', [$dateFrom, $dateTo])
-                ->with(['room', 'cs'])
+                ->with([
+                    'room:id,nama_ruangan,kode_ruangan',
+                    'cs:id,full_name,username'
+                ])
                 ->orderBy('due_datetime', 'desc')
                 ->take(5)
                 ->get()
@@ -196,7 +245,7 @@ class DashboardController extends Controller
                     'room_name' => $t->room?->nama_ruangan,
                     'cs_name' => $t->cs?->full_name ?? 'Belum Ditugaskan',
                     'due_datetime' => $t->due_datetime?->toDateTimeString(),
-                    'task_date' => $t->tanggal_task->toDateString(),
+                    'task_date' => $t->tanggal_task instanceof Carbon ? $t->tanggal_task->toDateString() : (string) $t->tanggal_task,
                 ]);
 
             return [
@@ -234,12 +283,15 @@ class DashboardController extends Controller
             ->pluck('building_id')
             ->toArray();
 
-        // 2. Ambil seluruh tugas di gedung penugasan aktif hari ini
-        $tasksToday = Task::whereDate('tanggal_task', $today)
+        // 2. Ambil seluruh tugas di gedung penugasan aktif hari ini (menggunakan index langsung pada tanggal_task)
+        $tasksToday = Task::where('tanggal_task', $today)
             ->whereHas('room', function ($q) use ($buildingIds) {
                 $q->whereIn('building_id', $buildingIds);
             })
-            ->with(['room', 'cs'])
+            ->with([
+                'room:id,nama_ruangan,kode_ruangan,building_id',
+                'cs:id,full_name,username'
+            ])
             ->get();
 
         // 3. Kelompokkan per Ruangan + Shift + Tanggal (representasi 1 area/ruangan fisik)
@@ -359,10 +411,10 @@ class DashboardController extends Controller
         // Ambil semua shift aktif
         $shifts = Shift::where('is_active', true)->get();
 
-        // Ambil semua tugas hari ini di gedung ini
+        // Ambil semua tugas hari ini di gedung ini (menggunakan index pada tanggal_task)
         $tasksToday = Task::whereIn('room_id', $rooms->pluck('id'))
-            ->whereDate('tanggal_task', today()->toDateString())
-            ->with('cs')
+            ->where('tanggal_task', today()->toDateString())
+            ->with('cs:id,full_name,username')
             ->get();
 
         $grid = $rooms->map(function ($room) use ($shifts, $tasksToday) {

@@ -94,13 +94,13 @@ class TaskController extends Controller
         }
 
         // Auto-generate daily tasks if none exist for today yet (useful for local development/first access)
-        if (!Task::whereDate('tanggal_task', today()->toDateString())->exists()) {
+        $today = today()->toDateString();
+        if (!Task::where('tanggal_task', $today)->exists()) {
             $generator = new \App\Services\TaskGeneratorService();
             $generator->generateForDate(today());
         }
 
         // Dapatkan semua ID gedung tempat CS ditugaskan hari ini
-        $today = today()->toDateString();
         $buildingIds = \App\Models\CsAssignment::where('cs_user_id', $user->id)
             ->where('tanggal_mulai', '<=', $today)
             ->where(function ($query) use ($today) {
@@ -115,8 +115,15 @@ class TaskController extends Controller
         }
 
         $query = Task::query()
-            ->with(['schedule.checklistItem', 'cs', 'room.building', 'shift'])
-            ->whereDate('tanggal_task', today()->toDateString())
+            ->with([
+                'schedule:id,room_id,checklist_item_id,shift_id,target_jam_mulai,target_jam_selesai',
+                'schedule.checklistItem:id,nama_item',
+                'cs:id,full_name,username',
+                'room:id,nama_ruangan,kode_ruangan,building_id',
+                'room.building:id,nama_gedung,kode_gedung',
+                'shift'
+            ])
+            ->where('tanggal_task', $today)
             ->whereHas('room', function ($roomQuery) use ($buildingIds) {
                 $roomQuery->whereIn('building_id', $buildingIds);
             });
