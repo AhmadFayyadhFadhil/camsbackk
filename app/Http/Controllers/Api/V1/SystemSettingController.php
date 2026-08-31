@@ -48,7 +48,7 @@ class SystemSettingController extends Controller
                 }
                 if ($key === 'company_logo') {
                     if (!empty($value)) {
-                        $value = url('api/v1/settings/logo/image');
+                        $value = '/api/v1/settings/logo/image';
                     } else {
                         $value = null;
                     }
@@ -130,7 +130,7 @@ class SystemSettingController extends Controller
         Cache::forget('cams_public_settings_cache');
         
         return $this->success([
-            'logo_url' => url('api/v1/settings/logo/image')
+            'logo_url' => '/api/v1/settings/logo/image'
         ], 'Logo perusahaan berhasil diperbarui.');
     }
 
