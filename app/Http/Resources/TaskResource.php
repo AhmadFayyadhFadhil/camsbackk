@@ -44,6 +44,8 @@ class TaskResource extends JsonResource
                 'id' => $this->shift->id,
                 'name' => $this->shift->nama_shift,
                 'code' => $this->shift->kode_shift,
+                'start_time' => $this->shift->jam_mulai ? substr($this->shift->jam_mulai, 0, 5) : null,
+                'end_time' => $this->shift->jam_selesai ? substr($this->shift->jam_selesai, 0, 5) : null,
             ] : null,
 
             'created_at' => $this->created_at?->toIso8601String(),
