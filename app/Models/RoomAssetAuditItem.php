@@ -15,6 +15,8 @@ class RoomAssetAuditItem extends Model
 
     protected $fillable = [
         'room_asset_audit_id',
+        'room_id',
+        'nama_ruangan_snapshot',
         'room_asset_id',
         'nama_aset_snapshot',
         'kode_aset_snapshot',
@@ -33,6 +35,11 @@ class RoomAssetAuditItem extends Model
     public function audit(): BelongsTo
     {
         return $this->belongsTo(RoomAssetAudit::class, 'room_asset_audit_id');
+    }
+
+    public function room(): BelongsTo
+    {
+        return $this->belongsTo(Room::class, 'room_id');
     }
 
     public function asset(): BelongsTo

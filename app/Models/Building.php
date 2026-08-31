@@ -22,6 +22,10 @@ class Building extends Model
         'alamat',
         'latitude',
         'longitude',
+        'asset_audit_interval',
+        'asset_audit_interval_days',
+        'last_asset_audit_at',
+        'next_asset_audit_due',
         'is_active',
         'created_by',
     ];
@@ -30,11 +34,39 @@ class Building extends Model
         'is_active' => 'boolean',
         'latitude' => 'float',
         'longitude' => 'float',
+        'asset_audit_interval_days' => 'integer',
+        'last_asset_audit_at' => 'datetime',
+        'next_asset_audit_due' => 'date',
     ];
+
+    protected $appends = [
+        'audit_status',
+    ];
+
+    public function getAuditStatusAttribute(): string
+    {
+        if (!$this->next_asset_audit_due) {
+            return 'pending';
+        }
+        $due = \Carbon\Carbon::parse($this->next_asset_audit_due);
+        $today = \Carbon\Carbon::today();
+        if ($due->isPast() && !$due->isToday()) {
+            return 'overdue';
+        }
+        if ($due->diffInDays($today) <= 7) {
+            return 'due_soon';
+        }
+        return 'up_to_date';
+    }
 
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function audits(): HasMany
+    {
+        return $this->hasMany(RoomAssetAudit::class, 'building_id');
     }
 
     public function shifts(): BelongsToMany

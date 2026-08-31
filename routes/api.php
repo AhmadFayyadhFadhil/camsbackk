@@ -130,7 +130,10 @@ Route::prefix('v1')->group(function () {
         Route::get('shifts', [ShiftController::class, 'index']);
         Route::get('shifts/{id}', [ShiftController::class, 'show']);
 
-        // Modul Audit & Stock Opname Aset Ruangan Berkala
+        // Modul Audit & Stock Opname Aset Fisik Gedung & Ruangan Berkala
+        Route::get('building-asset-audits/summary', [RoomAssetAuditController::class, 'buildingSummary']);
+        Route::get('buildings/{id}/assets-tree', [RoomAssetAuditController::class, 'getBuildingAssetsTree']);
+        Route::put('buildings/{id}/asset-audit-schedule', [RoomAssetAuditController::class, 'updateBuildingSchedule'])->middleware('role:admin,supervisor');
         Route::get('room-asset-audits/schedule-summary', [RoomAssetAuditController::class, 'scheduleSummary']);
         Route::put('rooms/{id}/asset-audit-schedule', [RoomAssetAuditController::class, 'updateSchedule'])->middleware('role:admin,supervisor');
         Route::get('room-asset-audits', [RoomAssetAuditController::class, 'index']);

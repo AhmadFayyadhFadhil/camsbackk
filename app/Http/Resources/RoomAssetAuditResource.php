@@ -14,12 +14,17 @@ class RoomAssetAuditResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $buildingName = $this->building?->nama_gedung ?: $this->room?->building?->nama_gedung;
+        $buildingCode = $this->building?->kode_gedung ?: $this->room?->building?->kode_gedung;
+
         return [
             'id' => $this->id,
+            'building_id' => $this->building_id ?: $this->room?->building_id,
+            'building_name' => $buildingName,
+            'building_code' => $buildingCode,
             'room_id' => $this->room_id,
             'room_name' => $this->room?->nama_ruangan,
             'room_code' => $this->room?->kode_ruangan,
-            'building_name' => $this->room?->building?->nama_gedung,
             'auditor_id' => $this->auditor_id,
             'auditor_name' => $this->auditor?->full_name,
             'verified_by' => $this->verified_by,
@@ -35,8 +40,11 @@ class RoomAssetAuditResource extends JsonResource
             'verification_notes' => $this->verification_notes,
             'items' => $this->whenLoaded('items', function () {
                 return $this->items->map(function ($item) {
+                    $itemRoomName = $item->nama_ruangan_snapshot ?: $item->room?->nama_ruangan ?: $item->asset?->room?->nama_ruangan;
                     return [
                         'id' => $item->id,
+                        'room_id' => $item->room_id ?: $item->asset?->room_id,
+                        'room_name' => $itemRoomName,
                         'room_asset_id' => $item->room_asset_id,
                         'nama_aset' => $item->nama_aset_snapshot ?: $item->asset?->nama_aset,
                         'kode_aset' => $item->kode_aset_snapshot ?: $item->asset?->kode_aset,

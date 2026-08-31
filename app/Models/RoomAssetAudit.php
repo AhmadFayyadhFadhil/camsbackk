@@ -16,6 +16,7 @@ class RoomAssetAudit extends Model
     public $incrementing = false;
 
     protected $fillable = [
+        'building_id',
         'room_id',
         'auditor_id',
         'verified_by',
@@ -37,6 +38,11 @@ class RoomAssetAudit extends Model
         'has_discrepancy' => 'boolean',
         'verified_at' => 'datetime',
     ];
+
+    public function building(): BelongsTo
+    {
+        return $this->belongsTo(Building::class, 'building_id');
+    }
 
     public function room(): BelongsTo
     {
