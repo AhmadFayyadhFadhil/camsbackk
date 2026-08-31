@@ -192,6 +192,45 @@ class UserController extends Controller
     }
 
     /**
+     * PATCH /users/{id}/toggle-status (admin, supervisor)
+     * Mengubah status aktif / nonaktif pengguna secara instan
+     */
+    public function toggleStatus(Request $request, $id)
+    {
+        $user = User::findOrFail($id);
+        $actor = Auth::user();
+
+        // Proteksi 1: Jangan izinkan menonaktifkan diri sendiri
+        if ($user->id === $actor->id) {
+            return $this->error('Anda tidak dapat mengubah status aktif akun Anda sendiri.', null, 400);
+        }
+
+        // Proteksi 2: Supervisor tidak boleh menonaktifkan akun Administrator
+        if ($actor->hasRole('supervisor') && $user->hasRole('admin')) {
+            return $this->error('Supervisor tidak memiliki wewenang untuk mengubah status akun Administrator.', null, 403);
+        }
+
+        $oldStatus = (bool)$user->is_active;
+        $newStatus = !$oldStatus;
+
+        $user->update(['is_active' => $newStatus]);
+
+        // Jika dinonaktifkan, cabut semua token login aktif user tersebut
+        if (!$newStatus) {
+            $user->tokens()->delete();
+        }
+
+        AuditLogService::log('TOGGLE_USER_STATUS', 'users', $user->id, [
+            'is_active' => $oldStatus
+        ], [
+            'is_active' => $newStatus
+        ]);
+
+        $statusText = $newStatus ? 'diaktifkan' : 'dinonaktifkan';
+        return $this->success(new UserResource($user->load('roles')), "Status pengguna {$user->full_name} berhasil {$statusText}.");
+    }
+
+    /**
      * Ambil daftar staf aktif yang bisa di-assign tugas perbaikan (Admin/Supervisor).
      */
     public function assignableUsers(Request $request)

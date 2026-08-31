@@ -101,14 +101,15 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('cs-assignments', CsAssignmentController::class);
         });
 
-        // Modul Pengguna (Users) - Read: Admin & Supervisor, Write: Admin Only
+        // Modul Pengguna (Users) - Read & Write: Admin & Supervisor
         Route::get('users/assignable', [UserController::class, 'assignableUsers'])->middleware('role:admin,supervisor');
         Route::get('users', [UserController::class, 'index'])->middleware('role:admin,supervisor');
         Route::get('users/{id}', [UserController::class, 'show'])->middleware('role:admin,supervisor');
-        Route::post('users', [UserController::class, 'store'])->middleware('role:admin');
-        Route::put('users/{id}', [UserController::class, 'update'])->middleware('role:admin');
-        Route::patch('users/{id}', [UserController::class, 'update'])->middleware('role:admin');
-        Route::delete('users/{id}', [UserController::class, 'destroy'])->middleware('role:admin');
+        Route::post('users', [UserController::class, 'store'])->middleware('role:admin,supervisor');
+        Route::put('users/{id}', [UserController::class, 'update'])->middleware('role:admin,supervisor');
+        Route::patch('users/{id}', [UserController::class, 'update'])->middleware('role:admin,supervisor');
+        Route::patch('users/{id}/toggle-status', [UserController::class, 'toggleStatus'])->middleware('role:admin,supervisor');
+        Route::delete('users/{id}', [UserController::class, 'destroy'])->middleware('role:admin,supervisor');
 
         // Rute Read-Only Publik untuk Master Data (Di luar grup di atas, tetap dalam auth:sanctum)
         Route::get('buildings', [BuildingController::class, 'index']);
