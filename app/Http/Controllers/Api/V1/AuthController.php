@@ -14,6 +14,7 @@ use App\Services\NotificationService;
 use App\Services\AuditLogService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
 
@@ -186,5 +187,95 @@ class AuthController extends Controller
             new UserResource($user->load($relations)),
             'Data profil berhasil diambil.'
         );
+    }
+
+    /**
+     * POST /api/v1/auth/profile
+     * Update data profil user (Nama Lengkap, Nomor Telepon, dan Foto Profil)
+     */
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+
+        $request->validate([
+            'full_name' => ['required', 'string', 'max:100'],
+            'phone' => ['nullable', 'string', 'max:20'],
+            'foto_profile' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:3072'],
+            'remove_photo' => ['nullable'],
+        ], [
+            'full_name.required' => 'Nama lengkap wajib diisi.',
+            'foto_profile.image' => 'File foto profil harus berupa gambar yang valid (JPEG, PNG, WEBP).',
+            'foto_profile.max' => 'Ukuran foto profil maksimal 3 MB.',
+        ]);
+
+        $oldData = [
+            'full_name' => $user->full_name,
+            'phone' => $user->phone,
+            'foto_profile' => $user->foto_profile,
+        ];
+
+        $updateData = [
+            'full_name' => $request->full_name,
+            'phone' => $request->phone,
+        ];
+
+        // Handle penghapusan foto profil
+        $removePhoto = filter_var($request->input('remove_photo'), FILTER_VALIDATE_BOOLEAN);
+        if ($removePhoto) {
+            if ($user->foto_profile && Storage::disk('public')->exists($user->foto_profile)) {
+                Storage::disk('public')->delete($user->foto_profile);
+            }
+            $updateData['foto_profile'] = null;
+        }
+
+        // Handle upload foto profil baru
+        if ($request->hasFile('foto_profile')) {
+            // Hapus foto lama jika ada
+            if ($user->foto_profile && Storage::disk('public')->exists($user->foto_profile)) {
+                Storage::disk('public')->delete($user->foto_profile);
+            }
+
+            $path = $request->file('foto_profile')->store('avatars', 'public');
+            $updateData['foto_profile'] = $path;
+        }
+
+        $user->update($updateData);
+
+        AuditLogService::log('PROFILE_UPDATED', 'users', $user->id, $oldData, $updateData);
+
+        $relations = ['roles'];
+        if ($user->hasRole(RoleEnum::CS)) {
+            $relations[] = 'activeAssignment.shift';
+            $relations[] = 'activeAssignment.building';
+        }
+        if ($user->hasRole(RoleEnum::PIC)) {
+            $relations[] = 'picHistories.room';
+        }
+
+        return $this->success(
+            new UserResource($user->load($relations)),
+            'Profil berhasil diperbarui.'
+        );
+    }
+
+    /**
+     * GET /api/v1/auth/avatar/{userId}
+     * Stream foto profil user secara aman
+     */
+    public function streamAvatar(string $userId)
+    {
+        $user = User::findOrFail($userId);
+
+        if (!$user->foto_profile || !Storage::disk('public')->exists($user->foto_profile)) {
+            return response()->json(['message' => 'Foto profil tidak ditemukan.'], 404);
+        }
+
+        $filePath = Storage::disk('public')->path($user->foto_profile);
+        $mimeType = mime_content_type($filePath) ?: 'image/jpeg';
+
+        return response()->file($filePath, [
+            'Content-Type' => $mimeType,
+            'Cache-Control' => 'no-cache, private',
+        ]);
     }
 }

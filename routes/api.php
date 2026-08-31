@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\V1\AdhocTaskController;
 Route::prefix('v1')->group(function () {
     // 1. Auth Rute Publik (Dilindungi Rate Limiting Login)
     Route::post('auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
+    Route::get('auth/avatar/{userId}', [AuthController::class, 'streamAvatar']);
     Route::get('settings/public', [SystemSettingController::class, 'publicSettings']);
     Route::get('settings/logo/image', [SystemSettingController::class, 'streamLogo']);
 
@@ -36,6 +37,7 @@ Route::prefix('v1')->group(function () {
         // Modul Autentikasi Tambahan
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::post('auth/change-password', [AuthController::class, 'changePassword']);
+        Route::post('auth/profile', [AuthController::class, 'updateProfile']);
         Route::post('auth/reset-password/{userId}', [AuthController::class, 'resetPassword'])
             ->middleware('role:admin');
         Route::get('auth/me', [AuthController::class, 'me']);

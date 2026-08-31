@@ -26,6 +26,7 @@ class User extends Authenticatable
         'password',
         'full_name',
         'phone',
+        'foto_profile',
         'is_active',
         'last_login_at',
     ];
