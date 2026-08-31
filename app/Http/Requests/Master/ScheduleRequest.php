@@ -24,6 +24,10 @@ class ScheduleRequest extends FormRequest
             'frekuensi' => ['required', new Enum(FrequencyEnum::class)],
             'hari_minggu' => ['nullable', 'integer', 'min:0', 'max:6'],
             'tanggal_bulan' => ['nullable', 'integer', 'min:1', 'max:31'],
+            'target_jam_mulai' => ['nullable'],
+            'target_jam_selesai' => ['nullable'],
+            'estimasi_durasi_menit' => ['nullable', 'integer', 'min:1', 'max:480'],
+            'urutan' => ['nullable', 'integer', 'min:1'],
             'is_active' => ['nullable', 'boolean'],
         ];
     }

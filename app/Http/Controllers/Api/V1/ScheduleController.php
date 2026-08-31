@@ -283,6 +283,10 @@ class ScheduleController extends Controller
             'frekuensi' => ['required', 'string', 'in:harian,mingguan,bulanan,daily,weekly,monthly'],
             'hari_minggu' => ['nullable', 'integer', 'between:0,6'],
             'tanggal_bulan' => ['nullable', 'integer', 'between:1,31'],
+            'target_jam_mulai' => ['nullable'],
+            'target_jam_selesai' => ['nullable'],
+            'estimasi_durasi_menit' => ['nullable', 'integer', 'min:1', 'max:480'],
+            'urutan' => ['nullable', 'integer', 'min:1'],
             'item_ids' => ['nullable', 'array'],
         ]);
 
@@ -340,6 +344,8 @@ class ScheduleController extends Controller
                     'frekuensi' => $frekuensi,
                     'hari_minggu' => $frekuensi === FrequencyEnum::MINGGUAN->value ? $request->hari_minggu : null,
                     'tanggal_bulan' => $frekuensi === FrequencyEnum::BULANAN->value ? $request->tanggal_bulan : null,
+                    'target_jam_mulai' => $request->target_jam_mulai ?: $existingSchedule->target_jam_mulai,
+                    'target_jam_selesai' => $request->target_jam_selesai ?: $existingSchedule->target_jam_selesai,
                     'is_active' => true,
                 ]);
                 $reactivatedCount++;
@@ -351,6 +357,8 @@ class ScheduleController extends Controller
                     'frekuensi' => $frekuensi,
                     'hari_minggu' => $frekuensi === FrequencyEnum::MINGGUAN->value ? $request->hari_minggu : null,
                     'tanggal_bulan' => $frekuensi === FrequencyEnum::BULANAN->value ? $request->tanggal_bulan : null,
+                    'target_jam_mulai' => $request->target_jam_mulai,
+                    'target_jam_selesai' => $request->target_jam_selesai,
                     'is_active' => true,
                 ]);
                 $createdCount++;
