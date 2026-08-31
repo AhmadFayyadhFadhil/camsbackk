@@ -155,58 +155,12 @@ class BuildingController extends Controller
         $oldData = $building->toArray();
 
         return DB::transaction(function () use ($building, $oldData) {
-            // 1. Ambil semua ID ruangan di gedung ini
-            $roomIds = Room::where('building_id', $building->id)->pluck('id');
-
-            if ($roomIds->isNotEmpty()) {
-                // 2. Ambil semua ID tugas di ruangan-ruangan tersebut
-                $taskIds = Task::whereIn('room_id', $roomIds)->pluck('id');
-
-                if ($taskIds->isNotEmpty()) {
-                    // 3. Ambil semua ID checklist submissions untuk tugas-tugas tersebut
-                    $submissionIds = DB::table('checklist_submissions')->whereIn('task_id', $taskIds)->pluck('id');
-
-                    if ($submissionIds->isNotEmpty()) {
-                        // 4. Hapus verifikasi terkait
-                        DB::table('verifications')->whereIn('submission_id', $submissionIds)->delete();
-
-                        // 5. Hapus hasil checklist terkait
-                        DB::table('checklist_results')->whereIn('submission_id', $submissionIds)->delete();
-
-                        // 6. Hapus submissions terkait
-                        DB::table('checklist_submissions')->whereIn('id', $submissionIds)->delete();
-                    }
-
-                    // 7. Hapus tugas-tugas tersebut
-                    Task::whereIn('id', $taskIds)->delete();
-                }
-
-                // 8. Hapus temuan masalah terkait ruangan
-                DB::table('findings')->whereIn('room_id', $roomIds)->delete();
-
-                // 9. Hapus histori PIC ruangan
-                DB::table('room_pic_histories')->whereIn('room_id', $roomIds)->delete();
-
-                // 10. Hapus semua jadwal terkait ruangan
-                Schedule::whereIn('room_id', $roomIds)->delete();
-
-                // 11. Hapus semua ruangan di gedung ini
-                Room::where('building_id', $building->id)->delete();
-            }
-
-            // 12. Hapus semua CS assignments terkait gedung ini
-            CsAssignment::where('building_id', $building->id)->delete();
-
-            // 13. Hapus semua korelasi shift gedung (building_shifts)
-            DB::table('building_shifts')->where('building_id', $building->id)->delete();
-
-            // 14. Hapus gedung secara fisik dari database
+            $building->update(['is_active' => false]);
             $building->delete();
 
-            // Catat log penghapusan
             AuditLogService::log('DELETE_BUILDING', 'buildings', $building->id, $oldData, null);
 
-            return $this->success(null, 'Gedung berhasil dihapus sepenuhnya.');
+            return $this->success(null, 'Gedung berhasil dinonaktifkan dan di-soft delete. Data historis tetap terjaga.');
         });
     }
 
@@ -223,7 +177,7 @@ class BuildingController extends Controller
     }
 
     /**
-     * POST /buildings/{id}/shifts (admin)
+     * POST /buildings/{id}/shifts (admin, supervisor)
      */
     public function assignShifts(Request $request, $id)
     {
@@ -238,6 +192,37 @@ class BuildingController extends Controller
         $building->shifts()->sync($request->shift_ids);
         
         $newShifts = $building->shifts()->pluck('shifts.id')->toArray();
+        $removedShiftIds = array_values(array_diff($oldShifts, $newShifts));
+        $addedShiftIds = array_values(array_diff($newShifts, $oldShifts));
+
+        $roomIds = $building->rooms()->pluck('id');
+
+        // 1. Jika ada shift yang dilepas/dihapus dari gedung:
+        if (!empty($removedShiftIds)) {
+            // Nonaktifkan jadwal master untuk shift yang dilepas
+            Schedule::whereIn('room_id', $roomIds)
+                ->whereIn('shift_id', $removedShiftIds)
+                ->update(['is_active' => false]);
+
+            // Bersihkan / hapus tugas harian pending hari ini yang belum dikerjakan untuk shift tersebut
+            Task::whereIn('room_id', $roomIds)
+                ->whereIn('shift_id', $removedShiftIds)
+                ->where('status', \App\Enums\TaskStatusEnum::PENDING)
+                ->whereDate('tanggal_task', today()->toDateString())
+                ->delete();
+        }
+
+        // 2. Jika ada shift baru yang ditambahkan ke gedung:
+        if (!empty($addedShiftIds)) {
+            // Aktifkan kembali jadwal master ruangan yang sebelumnya pernah dibuat untuk shift ini
+            Schedule::whereIn('room_id', $roomIds)
+                ->whereIn('shift_id', $addedShiftIds)
+                ->update(['is_active' => true]);
+
+            // Generate tugas harian untuk shift aktif hari ini
+            $generator = new \App\Services\TaskGeneratorService();
+            $generator->generateForDate(today());
+        }
 
         AuditLogService::log(
             'ASSIGN_SHIFTS_TO_BUILDING',
@@ -247,17 +232,29 @@ class BuildingController extends Controller
             ['shift_ids' => $newShifts]
         );
 
-        return $this->success(new BuildingResource($building->load('shifts')), 'Shift berhasil dikaitkan dengan gedung.');
+        return $this->success(new BuildingResource($building->load('shifts')), 'Shift berhasil dikaitkan dengan gedung dan sinkronisasi tugas telah diperbarui.');
     }
 
     /**
-     * DELETE /buildings/{id}/shifts/{sid} (admin)
+     * DELETE /buildings/{id}/shifts/{sid} (admin, supervisor)
      */
     public function removeShift($id, $sid)
     {
         $building = Building::findOrFail($id);
-        
         $building->shifts()->detach($sid);
+
+        $roomIds = $building->rooms()->pluck('id');
+
+        // Nonaktifkan jadwal master dan hapus tugas pending
+        Schedule::whereIn('room_id', $roomIds)
+            ->where('shift_id', $sid)
+            ->update(['is_active' => false]);
+
+        Task::whereIn('room_id', $roomIds)
+            ->where('shift_id', $sid)
+            ->where('status', \App\Enums\TaskStatusEnum::PENDING)
+            ->whereDate('tanggal_task', today()->toDateString())
+            ->delete();
 
         AuditLogService::log(
             'REMOVE_SHIFT_FROM_BUILDING',
@@ -267,7 +264,7 @@ class BuildingController extends Controller
             null
         );
 
-        return $this->success(new BuildingResource($building->load('shifts')), 'Shift berhasil dilepas dari gedung.');
+        return $this->success(new BuildingResource($building->load('shifts')), 'Shift berhasil dilepas dari gedung dan tugas terkait telah dibersihkan.');
     }
 
     /**

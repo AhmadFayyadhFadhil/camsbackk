@@ -23,7 +23,7 @@ class FindingController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Finding::query()->with(['room.pic', 'reporter']);
+        $query = Finding::query()->with(['room.pic', 'reporter', 'asset']);
 
         // OB hanya boleh melihat laporan yang dia sendiri buat, ditugaskan kepadanya, ditugaskan ke eksternal, atau belum ditugaskan (untuk verifikasi)
         if ($request->user()->hasRole(RoleEnum::OB)) {
@@ -55,6 +55,10 @@ class FindingController extends Controller
             $query->where('room_id', $request->get('room_id'));
         }
 
+        if ($request->has('room_asset_id')) {
+            $query->where('room_asset_id', $request->get('room_asset_id'));
+        }
+
         $perPage = $request->get('per_page', 20);
         $findings = $query->paginate($perPage);
 
@@ -73,10 +77,11 @@ class FindingController extends Controller
     {
         $request->validate([
             'room_id'             => ['required', 'uuid', 'exists:rooms,id'],
+            'room_asset_id'       => ['nullable', 'uuid', 'exists:room_assets,id'],
             'finding_category_id' => ['nullable', 'uuid', 'exists:finding_categories,id'],
             'deskripsi'           => ['required', 'string'],
             'prioritas'           => ['required', 'string', 'in:low,medium,high'],
-            'foto_temuan'         => ['required', 'image', 'max:5120'],
+            'foto_temuan'         => ['required', 'image', 'max:1024'], // 1MB Limit
             'deadline_perbaikan'  => ['nullable', 'date'],
         ]);
 
@@ -89,6 +94,7 @@ class FindingController extends Controller
         $findingData = [
             'id'                  => (string) Str::uuid(),
             'room_id'             => $request->room_id,
+            'room_asset_id'       => $request->room_asset_id,
             'finding_category_id' => $categoryId,
             'reported_by'         => $request->user()->id,
             'deskripsi'           => $request->deskripsi,
@@ -100,7 +106,7 @@ class FindingController extends Controller
         ];
 
         $finding = Finding::create($findingData);
-        $finding->load(['room.pic', 'reporter']);
+        $finding->load(['room.pic', 'reporter', 'asset']);
 
         // Kirim notifikasi ke seluruh Supervisor aktif
         $supervisors = \App\Models\User::whereHas('roles', function ($q) {
@@ -144,7 +150,7 @@ class FindingController extends Controller
      */
     public function show($id)
     {
-        $finding = Finding::with(['room.pic', 'reporter'])->findOrFail($id);
+        $finding = Finding::with(['room.pic', 'reporter', 'asset'])->findOrFail($id);
         return $this->success(new FindingResource($finding), 'Detail temuan masalah berhasil diambil.');
     }
 
@@ -288,7 +294,7 @@ class FindingController extends Controller
         $request->validate([
             'status'               => ['required', 'string', 'in:open,in_progress,resolved'],
             'deadline_perbaikan'   => ['nullable', 'date'],
-            'foto_selesai'         => ['nullable', 'image', 'max:5120'],
+            'foto_selesai'         => ['nullable', 'image', 'max:1024'], // 1MB Limit
             'assigned_to'          => ['nullable', 'uuid', 'exists:users,id'],
             'assigned_to_external' => ['nullable', 'string', 'max:255'],
         ]);
@@ -299,10 +305,12 @@ class FindingController extends Controller
         $isAssigned = ($finding->assigned_to === $user->id);
         $isExternalOrUnassigned = (empty($finding->assigned_to) && empty($finding->assigned_to_external)) || !empty($finding->assigned_to_external);
 
-        // Otorisasi: Admin, Supervisor, CS, petugas yang ditunjuk (isAssigned), atau OB (jika belum di-assign atau di-assign eksternal)
+        // Otorisasi: Admin, Supervisor, CS, petugas yang ditunjuk (isAssigned), atau pelapor
         $canUpdateStatus = $user->hasRole(RoleEnum::ADMIN) || 
                            $user->hasRole(RoleEnum::SUPERVISOR) || 
-                           $isAssigned;
+                           $user->hasRole(RoleEnum::CS) ||
+                           $isAssigned ||
+                           ($finding->reported_by === $user->id);
 
         if (!$canUpdateStatus) {
             return $this->error('Akses ditolak. Anda tidak memiliki otorisasi untuk mengubah status temuan ini.', [], 403);

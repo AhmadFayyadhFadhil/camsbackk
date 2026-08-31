@@ -32,7 +32,9 @@ class RoomController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Room::query()->with(['building.shifts', 'pic']);
+        $query = Room::query()
+            ->whereHas('building')
+            ->with(['building.shifts', 'pic', 'template', 'assets']);
 
         if ($request->has('search')) {
             $search = $request->get('search');
@@ -82,6 +84,7 @@ class RoomController extends Controller
                 'nama_ruangan' => $data['nama_ruangan'],
                 'lantai' => $data['lantai'] ?? null,
                 'pic_user_id' => $data['pic_user_id'] ?? null,
+                'checklist_template_id' => $data['checklist_template_id'] ?? null,
                 'qr_code_token' => $token,
                 'qr_code_image' => $qrBinary,
                 'is_active' => true,
@@ -96,7 +99,7 @@ class RoomController extends Controller
                 ]);
             }
 
-            $room->load(['building', 'pic']);
+            $room->load(['building', 'pic', 'template']);
 
             AuditLogService::log('ROOM_CREATED', 'rooms', $room->id, null, $room->toArray());
 
@@ -109,7 +112,7 @@ class RoomController extends Controller
      */
     public function show($id)
     {
-        $room = Room::with(['building', 'pic'])->findOrFail($id);
+        $room = Room::with(['building', 'pic', 'template', 'assets'])->findOrFail($id);
         return $this->success(new RoomResource($room), 'Detail ruangan berhasil diambil.');
     }
 
@@ -136,6 +139,7 @@ class RoomController extends Controller
                 'kode_ruangan' => $data['kode_ruangan'],
                 'nama_ruangan' => $data['nama_ruangan'],
                 'lantai' => $data['lantai'] ?? null,
+                'checklist_template_id' => $data['checklist_template_id'] ?? null,
             ]);
 
             // Tangani pergantian PIC
@@ -161,7 +165,7 @@ class RoomController extends Controller
                 $room->update(['pic_user_id' => $newPicId]);
             }
 
-            $room->load(['building', 'pic']);
+            $room->load(['building', 'pic', 'template']);
 
             AuditLogService::log('UPDATE_ROOM', 'rooms', $room->id, $oldData, $room->toArray());
 
@@ -302,44 +306,13 @@ class RoomController extends Controller
         $oldData = $room->toArray();
 
         return DB::transaction(function () use ($room, $oldData) {
-            // 1. Ambil semua ID tugas yang terkait dengan ruangan ini
-            $taskIds = DB::table('tasks')->where('room_id', $room->id)->pluck('id')->toArray();
-
-            if (!empty($taskIds)) {
-                // 2. Ambil semua ID laporan (submissions) yang dikirim untuk tugas-tugas tersebut
-                $submissionIds = DB::table('checklist_submissions')->whereIn('task_id', $taskIds)->pluck('id')->toArray();
-
-                if (!empty($submissionIds)) {
-                    // 3. Hapus verifikasi terkait laporan tersebut
-                    DB::table('verifications')->whereIn('submission_id', $submissionIds)->delete();
-                    
-                    // 4. Hapus checklist results terkait laporan tersebut
-                    DB::table('checklist_results')->whereIn('submission_id', $submissionIds)->delete();
-
-                    // 5. Hapus laporan itu sendiri
-                    DB::table('checklist_submissions')->whereIn('id', $submissionIds)->delete();
-                }
-
-                // 6. Hapus tugas-tugas tersebut
-                DB::table('tasks')->whereIn('id', $taskIds)->delete();
-            }
-
-            // 7. Hapus temuan masalah terkait ruangan
-            DB::table('findings')->where('room_id', $room->id)->delete();
-
-            // 8. Hapus histori PIC ruangan
-            DB::table('room_pic_histories')->where('room_id', $room->id)->delete();
-
-            // 9. Hapus semua jadwal terkait ruangan
-            DB::table('schedules')->where('room_id', $room->id)->delete();
-
-            // 10. Hapus ruangan itu sendiri
+            $room->update(['is_active' => false]);
             $room->delete();
 
             // Catat log audit
             AuditLogService::log('DELETE_ROOM', 'rooms', $room->id, $oldData, null);
 
-            return $this->success(null, 'Ruangan dan seluruh data terkait berhasil dihapus sepenuhnya.');
+            return $this->success(null, 'Ruangan berhasil dinonaktifkan dan di-soft delete. Data historis tetap terjaga.');
         });
     }
 }

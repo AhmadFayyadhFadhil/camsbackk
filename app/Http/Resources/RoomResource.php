@@ -18,6 +18,12 @@ class RoomResource extends JsonResource
             'lantai' => $this->lantai,
             'pic_user_id' => $this->pic_user_id,
             'pic_name' => $this->pic?->full_name,
+            'checklist_template_id' => $this->checklist_template_id,
+            'template_name' => $this->template?->nama_template,
+            'template' => $this->template ? [
+                'id' => $this->template->id,
+                'nama_template' => $this->template->nama_template,
+            ] : null,
             'is_active' => (bool)$this->is_active,
             
             // Frontend expected parameters

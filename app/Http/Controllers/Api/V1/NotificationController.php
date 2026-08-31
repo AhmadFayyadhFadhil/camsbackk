@@ -85,6 +85,10 @@ class NotificationController extends Controller
         $user = $request->user();
         $query = Notification::where('user_id', $user->id)->orderBy('created_at', 'desc');
 
+        $unreadCount = Notification::where('user_id', $user->id)->where('is_read', false)->count();
+        $readCount = Notification::where('user_id', $user->id)->where('is_read', true)->count();
+        $totalCount = $unreadCount + $readCount;
+
         if ($request->has('is_read')) {
             $query->where('is_read', filter_var($request->get('is_read'), FILTER_VALIDATE_BOOLEAN));
         }
@@ -92,10 +96,22 @@ class NotificationController extends Controller
         $perPage = $request->get('per_page', 20);
         $notifications = $query->paginate($perPage);
 
-        return $this->paginated(
-            NotificationResource::collection($notifications),
-            'Daftar notifikasi berhasil diambil.'
-        );
+        $resourceData = NotificationResource::collection($notifications)->response()->getData(true);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Daftar notifikasi berhasil diambil.',
+            'data' => $resourceData['data'] ?? [],
+            'links' => $resourceData['links'] ?? null,
+            'meta' => array_merge(
+                $resourceData['meta'] ?? [],
+                [
+                    'unread_count' => $unreadCount,
+                    'read_count' => $readCount,
+                    'total_count' => $totalCount,
+                ]
+            )
+        ]);
     }
 
     /**
@@ -114,5 +130,41 @@ class NotificationController extends Controller
             new NotificationResource($notification),
             'Notifikasi berhasil ditandai sebagai terbaca.'
         );
+    }
+
+    /**
+     * Tandai semua notifikasi user sebagai terbaca.
+     */
+    public function markAllAsRead(Request $request)
+    {
+        Notification::where('user_id', $request->user()->id)
+            ->where('is_read', false)
+            ->update([
+                'is_read' => true,
+                'read_at' => now(),
+            ]);
+
+        return $this->success(null, 'Semua notifikasi berhasil ditandai sebagai terbaca.');
+    }
+
+    /**
+     * Hapus satu notifikasi.
+     */
+    public function destroy(Request $request, $id)
+    {
+        $notification = Notification::where('user_id', $request->user()->id)->findOrFail($id);
+        $notification->delete();
+
+        return $this->success(null, 'Notifikasi berhasil dihapus.');
+    }
+
+    /**
+     * Hapus semua notifikasi milik user.
+     */
+    public function destroyAll(Request $request)
+    {
+        Notification::where('user_id', $request->user()->id)->delete();
+
+        return $this->success(null, 'Semua notifikasi berhasil dihapus.');
     }
 }

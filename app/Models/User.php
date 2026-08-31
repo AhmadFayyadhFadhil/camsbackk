@@ -7,6 +7,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
@@ -14,7 +15,7 @@ use App\Enums\RoleEnum;
 
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable, HasApiTokens, HasUuids;
+    use HasFactory, Notifiable, HasApiTokens, HasUuids, SoftDeletes;
 
     protected $keyType = 'string';
     public $incrementing = false;
@@ -85,5 +86,15 @@ class User extends Authenticatable
     public function roomsAsPic(): HasMany
     {
         return $this->hasMany(Room::class, 'pic_user_id');
+    }
+
+    public function adhocTasksAssigned(): HasMany
+    {
+        return $this->hasMany(AdhocTask::class, 'cs_user_id');
+    }
+
+    public function adhocTasksCreated(): HasMany
+    {
+        return $this->hasMany(AdhocTask::class, 'created_by');
     }
 }

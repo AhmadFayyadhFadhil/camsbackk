@@ -4,12 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Room extends Model
 {
-    use HasUuids;
+    use HasUuids, SoftDeletes;
 
     protected $keyType = 'string';
     public $incrementing = false;
@@ -20,6 +21,7 @@ class Room extends Model
         'nama_ruangan',
         'lantai',
         'pic_user_id',
+        'checklist_template_id',
         'qr_code_token',
         'qr_code_image',
         'is_active',
@@ -43,6 +45,16 @@ class Room extends Model
         return $this->belongsTo(User::class, 'pic_user_id');
     }
 
+    public function template(): BelongsTo
+    {
+        return $this->belongsTo(ChecklistTemplate::class, 'checklist_template_id');
+    }
+
+    public function assets(): HasMany
+    {
+        return $this->hasMany(RoomAsset::class, 'room_id');
+    }
+
     public function picHistories(): HasMany
     {
         return $this->hasMany(RoomPicHistory::class, 'room_id');
@@ -61,5 +73,19 @@ class Room extends Model
     public function findings(): HasMany
     {
         return $this->hasMany(Finding::class, 'room_id');
+    }
+
+    protected static function booted(): void
+    {
+        static::deleting(function (Room $room) {
+            // Cascade soft-delete schedules for this room
+            foreach ($room->schedules as $schedule) {
+                $schedule->update(['is_active' => false]);
+                $schedule->delete();
+            }
+
+            // Cancel pending tasks
+            $room->tasks()->where('status', \App\Enums\TaskStatusEnum::PENDING)->delete();
+        });
     }
 }

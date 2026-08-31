@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\Schedule;
 use App\Models\Task;
 use App\Models\CsAssignment;
+use App\Models\Room;
+use App\Models\ChecklistItem;
 use App\Enums\FrequencyEnum;
 use App\Helpers\ShiftValidatorHelper;
 use Carbon\Carbon;
@@ -13,6 +15,7 @@ class TaskGeneratorService
 {
     /**
      * Membuat data task harian berdasarkan schedule aktif dan penugasan CS.
+     * Secara dinamis mendukung checklist template pada ruangan.
      *
      * @param Carbon $targetDate
      * @return array Summary of generated and skipped tasks
@@ -24,9 +27,27 @@ class TaskGeneratorService
         $dayOfWeek  = (int) $targetDate->format("w"); // 0=Minggu s/d 6=Sabtu
         $dayOfMonth = (int) $targetDate->format("j"); // 1-31
 
-        $schedules = Schedule::with(['room.building', 'shift'])->where('is_active', true)->get();
+        $schedules = Schedule::with(['room.building.shifts', 'shift'])
+            ->where('is_active', true)
+            ->whereHas('room', function ($q) {
+                $q->where('is_active', true)->whereHas('building', function ($b) {
+                    $b->where('is_active', true);
+                });
+            })
+            ->get();
 
         foreach ($schedules as $schedule) {
+            if (!$schedule->room || !$schedule->room->building) {
+                continue;
+            }
+
+            // Validasi: Shift dari jadwal ini harus benar-benar aktif di gedung ruangan tersebut
+            $activeBuildingShiftIds = $schedule->room->building->shifts->pluck('id')->toArray();
+            if (!in_array($schedule->shift_id, $activeBuildingShiftIds)) {
+                $schedule->update(['is_active' => false]);
+                continue;
+            }
+
             // 1. Filter frekuensi
             if ($schedule->frekuensi === FrequencyEnum::MINGGUAN && $schedule->hari_minggu !== $dayOfWeek) {
                 continue;

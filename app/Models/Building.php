@@ -4,13 +4,14 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Building extends Model
 {
-    use HasUuids;
+    use HasUuids, SoftDeletes;
 
     protected $keyType = 'string';
     public $incrementing = false;
@@ -55,5 +56,21 @@ class Building extends Model
     public function csAssignments(): HasMany
     {
         return $this->hasMany(CsAssignment::class, 'building_id');
+    }
+
+    protected static function booted(): void
+    {
+        static::deleting(function (Building $building) {
+            // Cascade soft-delete all child rooms
+            foreach ($building->rooms as $room) {
+                $room->update(['is_active' => false]);
+                $room->delete();
+            }
+
+            // Deactivate CS assignments for this building
+            $building->csAssignments()->update([
+                'tanggal_selesai' => now()->toDateString(),
+            ]);
+        });
     }
 }

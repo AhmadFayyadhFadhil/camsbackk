@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\ChecklistSubmissionResource;
 use App\Models\Room;
 use App\Models\Task;
+use App\Models\Schedule;
 use App\Models\ChecklistSubmission;
 use App\Models\ChecklistResult;
 use App\Models\ChecklistItem;
@@ -25,13 +26,13 @@ class SubmissionController extends Controller
     use ApiResponse;
 
     /**
-     * Scan QR Code ruangan untuk memulai pengerjaan task.
+     * Scan QR Code atau Mulai pengerjaan task secara langsung.
      * POST /submissions/scan
      */
     public function scanQrCode(Request $request)
     {
         $request->validate([
-            'room_id' => ['required', 'uuid'],
+            'room_id' => ['nullable', 'uuid'],
             'qr_code_token' => ['nullable', 'string'],
             'task_id' => ['nullable', 'uuid'],
         ]);
@@ -40,68 +41,32 @@ class SubmissionController extends Controller
 
         $task = null;
         if ($request->task_id) {
-            $task = Task::find($request->task_id);
+            $task = Task::with(['room.building', 'shift'])->find($request->task_id);
         }
-
-        // Cek apakah user sedang melanjutkan tugas yang memang sudah "in_progress" milik dirinya sendiri
-        $isResuming = $task && 
-                      $task->status === TaskStatusEnum::IN_PROGRESS && 
-                      $task->cs_user_id === $user->id;
 
         $room = null;
 
-        if ($isResuming) {
-            // Jika melanjutkan tugas yang sudah dimulai, abaikan pengecekan token QR
+        if ($task) {
             $room = $task->room;
-        } else {
-            // Jika memulai tugas baru (dari PENDING) atau tanpa detail tugas, wajib validasi token QR
-            if (!$request->qr_code_token) {
-                return $this->error('Token QR Code wajib dikirim untuk memulai pengerjaan.', [], 422);
-            }
-
-            $room = Room::where('id', $request->room_id)
-                ->where('qr_code_token', $request->qr_code_token)
-                ->first();
-
-            // Fallback 1 (HANYA di env lokal untuk testing): jika token salah tapi task_id dikirim
-            if (!$room && $request->task_id && config('app.env') === 'local') {
-                if ($task) {
-                    $room = $task->room;
-                }
-            }
-
-            // Fallback 2: mencocokkan ruangan hanya berdasarkan token QR saja
-            if (!$room) {
-                $room = Room::where('qr_code_token', $request->qr_code_token)->first();
-            }
-
-            // Fallback 3 (HANYA di env lokal): mencocokkan ruangan berdasarkan ID saja
-            if (!$room && config('app.env') === 'local') {
+        } elseif ($request->room_id) {
+            if ($request->qr_code_token) {
+                $room = Room::where('id', $request->room_id)
+                    ->where('qr_code_token', $request->qr_code_token)
+                    ->first() ?: Room::find($request->room_id);
+            } else {
                 $room = Room::find($request->room_id);
             }
+        } elseif ($request->qr_code_token) {
+            $room = Room::where('qr_code_token', $request->qr_code_token)->first();
+        }
 
-            // Fallback 4 (HANYA di env lokal): mencocokkan dengan ruangan dari tugas pending pertama
-            if (!$room && config('app.env') === 'local') {
-                $todayStr = today()->toDateString();
-                $firstTask = Task::where('cs_user_id', $user->id)
-                    ->where('status', TaskStatusEnum::PENDING)
-                    ->whereDate('tanggal_task', $todayStr)
-                    ->first();
-                
-                if (!$firstTask) {
-                    $firstTask = Task::where('status', TaskStatusEnum::PENDING)
-                        ->whereDate('tanggal_task', $todayStr)
-                        ->first();
-                }
-
-                if ($firstTask) {
-                    $room = $firstTask->room;
-                }
-            }
+        // Fallback pencarian ruangan
+        if (!$room && $request->room_id) {
+            $room = Room::find($request->room_id);
         }
 
         if (!$room) {
-            return $this->error('QR Code tidak valid atau ruangan tidak ditemukan.', [], 404);
+            return $this->error('Ruangan tidak ditemukan atau token QR tidak valid.', [], 404);
         }
 
         // 1. Validasi CS ditugaskan di gedung ini hari ini
@@ -115,95 +80,167 @@ class SubmissionController extends Controller
             })
             ->exists();
 
+        // Jika task langsung ditugaskan ke CS ini, izinkan pengerjaan
+        if (!$isAssigned && $task && $task->cs_user_id === $user->id) {
+            $isAssigned = true;
+        }
+
+        // Di env lokal atau jika assignment mencakup gedung, loloskan
+        if (!$isAssigned && config('app.env') === 'local') {
+            $isAssigned = true;
+        }
+
         if (!$isAssigned) {
             return $this->error('Akses ditolak: Anda tidak ditugaskan di gedung ini hari ini.', [], 403);
         }
 
-        // 2. Deteksi shift otomatis berdasarkan waktu scan saat ini
-        $currentShift = ShiftValidatorHelper::getCurrentShift();
-        if (!$currentShift) {
-            return $this->error('Akses ditolak: di luar jam shift kerja apa pun.', [], 403);
-        }
+        // 2. Tentukan kumpulan tugas yang akan dimulai
+        if ($task) {
+            $tasks = Task::where('room_id', $task->room_id)
+                ->where('shift_id', $task->shift_id)
+                ->whereDate('tanggal_task', $task->tanggal_task)
+                ->with(['room.building', 'shift'])
+                ->get();
 
-        // 3. Cari semua tugas untuk ruangan ini hari ini
-        $allTasksToday = Task::where('room_id', $room->id)
-            ->where(function ($q) {
-                $q->whereDate('tanggal_task', today()->toDateString());
-                if (now()->format('H:i:s') <= '06:30:00') {
-                    $q->orWhereDate('tanggal_task', today()->subDay()->toDateString());
+            if ($tasks->isEmpty()) {
+                $tasks = collect([$task]);
+            }
+        } else {
+            $allTasksToday = Task::where('room_id', $room->id)
+                ->where(function ($q) {
+                    $q->whereDate('tanggal_task', today()->toDateString());
+                    if (now()->format('H:i:s') <= '06:30:00') {
+                        $q->orWhereDate('tanggal_task', today()->subDay()->toDateString());
+                    }
+                })
+                ->with('shift')
+                ->get();
+
+            // Saring tugas yang jam kerjanya sesuai dengan waktu sekarang (termasuk buffer)
+            $activeShiftTasks = $allTasksToday->filter(function ($t) {
+                return $t->shift && ShiftValidatorHelper::isWithinShift($t->shift);
+            });
+
+            if ($activeShiftTasks->isEmpty()) {
+                $activeShiftTasks = $allTasksToday->filter(function ($t) {
+                    return $t->status === TaskStatusEnum::PENDING || $t->status === TaskStatusEnum::IN_PROGRESS;
+                });
+            }
+
+            if ($activeShiftTasks->isEmpty()) {
+                $activeShiftTasks = $allTasksToday;
+            }
+
+            if ($activeShiftTasks->isEmpty()) {
+                return $this->error('Tidak ada jadwal tugas kebersihan aktif untuk ruangan ini hari ini.', [], 404);
+            }
+
+            // Saring tugas yang bisa dikerjakan oleh user ini:
+            // 1. Tugas yang masih PENDING / REJECTED / OVERDUE di gedung penugasan CS ini (bisa diklaim & dikerjakan)
+            // 2. ATAU tugas yang sedang dikerjakan (IN_PROGRESS) oleh user ini
+            $tasks = $activeShiftTasks->filter(function ($t) use ($user) {
+                return (in_array($t->status, [TaskStatusEnum::PENDING, TaskStatusEnum::REJECTED, TaskStatusEnum::OVERDUE])) || 
+                       ($t->status === TaskStatusEnum::IN_PROGRESS && $t->cs_user_id === $user->id);
+            });
+
+            if ($tasks->isEmpty()) {
+                $firstActiveTask = $activeShiftTasks->first();
+                if ($firstActiveTask && $firstActiveTask->status === TaskStatusEnum::COMPLETED) {
+                    return $this->error('Tugas kebersihan ruangan ini sudah selesai dikerjakan.', [], 400);
                 }
-            })
-            ->with('shift')
-            ->get();
-
-        // Saring tugas yang jam kerjanya sesuai dengan waktu sekarang (termasuk buffer)
-        $activeShiftTasks = $allTasksToday->filter(function ($task) {
-            return $task->shift && ShiftValidatorHelper::isWithinShift($task->shift);
-        });
-
-        if ($activeShiftTasks->isEmpty()) {
-            return $this->error('Tidak ada jadwal tugas kebersihan untuk ruangan ini pada jam sekarang.', [], 404);
-        }
-
-        // Saring tugas yang bisa dikerjakan oleh user ini (status PENDING, atau IN_PROGRESS oleh user ini)
-        $tasks = $activeShiftTasks->filter(function ($task) use ($user) {
-            return $task->status === TaskStatusEnum::PENDING || 
-                   ($task->status === TaskStatusEnum::IN_PROGRESS && $task->cs_user_id === $user->id);
-        });
-
-        if ($tasks->isEmpty()) {
-            $firstActiveTask = $activeShiftTasks->first();
-            
-            if ($firstActiveTask->status === TaskStatusEnum::COMPLETED) {
-                return $this->error('Tugas kebersihan ruangan ini pada shift sekarang sudah selesai dikerjakan.', [], 400);
+                if ($firstActiveTask && $firstActiveTask->status === TaskStatusEnum::WAITING_VERIFICATION) {
+                    return $this->error('Laporan tugas kebersihan ruangan ini sedang menunggu verifikasi dari PIC.', [], 400);
+                }
+                if ($firstActiveTask && $firstActiveTask->status === TaskStatusEnum::IN_PROGRESS) {
+                    return $this->error('Tugas ruangan ini sedang dikerjakan oleh CS lain saat ini.', [], 400);
+                }
+                return $this->error('Tidak ada tugas aktif atau tertunda untuk ruangan ini hari ini.', [], 404);
             }
-            
-            if ($firstActiveTask->status === TaskStatusEnum::WAITING_VERIFICATION) {
-                return $this->error('Laporan tugas kebersihan ruangan ini sedang menunggu verifikasi dari PIC.', [], 400);
-            }
-            
-            if ($firstActiveTask->status === TaskStatusEnum::IN_PROGRESS) {
-                return $this->error('Tugas ruangan ini sedang dikerjakan oleh CS lain saat ini.', [], 400);
-            }
-            
-            return $this->error('Tidak ada tugas aktif atau tertunda untuk shift ruangan ini pada jam sekarang.', [], 404);
         }
 
         return DB::transaction(function () use ($tasks, $room, $user) {
-            // Update all pending tasks in this shift to in_progress and assign to the scanning CS
-            foreach ($tasks as $task) {
-                $oldTask = $task->toArray();
+            // Update all pending tasks to in_progress and assign to this CS
+            foreach ($tasks as $t) {
+                $oldTask = $t->toArray();
                 $updateData = [];
                 
-                if ($task->status === TaskStatusEnum::PENDING) {
+                if ($t->status === TaskStatusEnum::PENDING || $t->status === TaskStatusEnum::REJECTED || $t->status === TaskStatusEnum::OVERDUE) {
                     $updateData['status'] = TaskStatusEnum::IN_PROGRESS;
                 }
                 
-                if ($task->cs_user_id !== $user->id) {
+                if ($t->cs_user_id !== $user->id) {
                     $updateData['cs_user_id'] = $user->id;
                 }
                 
                 if (!empty($updateData)) {
-                    $task->update($updateData);
-                    AuditLogService::log('START_TASK', 'tasks', $task->id, $oldTask, $task->toArray());
+                    $t->update($updateData);
+                    AuditLogService::log('START_TASK', 'tasks', $t->id, $oldTask, $t->toArray());
                 }
             }
 
-            // Ambil checklist items yang dijadwalkan untuk tasks tersebut
-            $checklistItems = ChecklistItem::whereIn('id', function($q) use ($tasks) {
-                $q->select('checklist_item_id')
-                  ->from('schedules')
-                  ->whereIn('id', $tasks->pluck('schedule_id'));
-            })->where('is_active', true)->get();
+            // Ambil seluruh checklist items yang aktif untuk jadwal-jadwal ruangan ini pada shift terkait
+            $scheduledItemIds = Schedule::where('room_id', $room->id)
+                ->where('is_active', true)
+                ->where(function($q) use ($tasks) {
+                    $shiftIds = $tasks->pluck('shift_id')->filter()->unique();
+                    if ($shiftIds->isNotEmpty()) {
+                        $q->whereIn('shift_id', $shiftIds);
+                    }
+                })
+                ->pluck('checklist_item_id')
+                ->unique();
+
+            $checklistItems = ChecklistItem::whereIn('id', $scheduledItemIds)
+                ->where('is_active', true)
+                ->get();
+
+            // Jika item dari jadwal masih kosong dan ruangan memiliki template checklist
+            if ($checklistItems->isEmpty() && $room->checklist_template_id && $room->template) {
+                $templateItems = $room->template->items;
+                $checklistItems = collect();
+                foreach ($templateItems as $tItem) {
+                    $cItem = ChecklistItem::firstOrCreate(
+                        ['nama_item' => $tItem->nama_item],
+                        ['kategori' => 'General', 'is_active' => true]
+                    );
+                    $checklistItems->push($cItem);
+                }
+            }
+
+            // Fallback jika belum ada jadwal spesifik shift, ambil dari seluruh jadwal aktif di ruangan
+            if ($checklistItems->isEmpty()) {
+                $allRoomScheduleItemIds = Schedule::where('room_id', $room->id)
+                    ->where('is_active', true)
+                    ->pluck('checklist_item_id')
+                    ->unique();
+
+                $checklistItems = ChecklistItem::whereIn('id', $allRoomScheduleItemIds)
+                    ->where('is_active', true)
+                    ->get();
+            }
+
+            // Fallback jika masih kosong, ambil dari schedule_id tasks terkait
+            if ($checklistItems->isEmpty()) {
+                $checklistItems = ChecklistItem::whereIn('id', function($q) use ($tasks) {
+                    $q->select('checklist_item_id')
+                      ->from('schedules')
+                      ->whereIn('id', $tasks->pluck('schedule_id'));
+                })->where('is_active', true)->get();
+            }
+
+            // Fallback darurat
+            if ($checklistItems->isEmpty()) {
+                $checklistItems = ChecklistItem::where('is_active', true)->limit(10)->get();
+            }
 
             return $this->success([
-                'task' => new \App\Http\Resources\TaskResource($tasks->first()), // representative task
+                'task' => new \App\Http\Resources\TaskResource($tasks->first()),
                 'checklist_items' => $checklistItems->map(fn($item) => [
                     'id' => $item->id,
                     'nama_item' => $item->nama_item,
                     'kategori' => $item->kategori,
                 ]),
-            ], 'Scan QR Code berhasil. Silakan mulai pengerjaan tugas.');
+            ], 'Pengerjaan tugas kebersihan dimulai. Silakan isi checklist dan ambil foto bukti.');
         });
     }
 
@@ -231,10 +268,12 @@ class SubmissionController extends Controller
             'results.*.checklist_item_id' => ['required', 'uuid', 'exists:checklist_items,id'],
             'results.*.is_done' => ['required', 'boolean'],
             'results.*.catatan' => ['nullable', 'string'],
-            'foto_after_1' => ['required', 'image', 'max:5120'],
-            'foto_after_2' => ['required', 'image', 'max:5120'],
-            'foto_after_3' => ['required', 'image', 'max:5120'],
-            'foto_after_4' => ['required', 'image', 'max:5120'],
+            'material_ids' => ['nullable', 'array'],
+            'material_ids.*' => ['uuid', 'exists:cleaning_materials,id'],
+            'foto_after_1' => ['required', 'image', 'max:1024'], // 1MB limit
+            'foto_after_2' => ['required', 'image', 'max:1024'], // 1MB limit
+            'foto_after_3' => ['required', 'image', 'max:1024'], // 1MB limit
+            'foto_after_4' => ['required', 'image', 'max:1024'], // 1MB limit
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'gps_accuracy' => ['nullable', 'numeric'],
@@ -331,7 +370,12 @@ class SubmissionController extends Controller
                 ]);
             }
 
-            // 3. Update status ALL related tasks to waiting_verification
+            // 3. Simpan bahan kimia / alat pembersih yang digunakan
+            if ($request->has('material_ids') && is_array($request->material_ids)) {
+                $submission->materials()->sync($request->material_ids);
+            }
+
+            // 4. Update status ALL related tasks to waiting_verification
             foreach ($tasks as $task) {
                 $oldTask = $task->toArray();
                 $task->update([
@@ -340,7 +384,7 @@ class SubmissionController extends Controller
                 AuditLogService::log('UPDATE_TASK_STATUS_TO_WAITING_VERIFICATION', 'tasks', $task->id, $oldTask, $task->toArray());
             }
 
-            // 4. Kirim notifikasi ke PIC aktif ruangan tersebut
+            // 5. Kirim notifikasi ke PIC aktif ruangan tersebut
             $pic = $representativeTask->room?->pic;
             if ($pic) {
                 NotificationService::send(
@@ -357,10 +401,10 @@ class SubmissionController extends Controller
                 );
             }
 
-            AuditLogService::log('SUBMIT_CHECKLIST_REPORT', 'checklist_submissions', $submission->id, null, $submission->load('results')->toArray());
+            AuditLogService::log('SUBMIT_CHECKLIST_REPORT', 'checklist_submissions', $submission->id, null, $submission->load(['results', 'materials'])->toArray());
 
             return $this->success(
-                new ChecklistSubmissionResource($submission->load('results.checklistItem')),
+                new ChecklistSubmissionResource($submission->load(['results.checklistItem', 'materials'])),
                 'Laporan kebersihan berhasil diserahkan. Menunggu verifikasi PIC.',
                 201
             );
@@ -383,10 +427,12 @@ class SubmissionController extends Controller
             'results.*.checklist_item_id' => ['required', 'uuid', 'exists:checklist_items,id'],
             'results.*.is_done' => ['required', 'boolean'],
             'results.*.catatan' => ['nullable', 'string'],
-            'foto_after_1' => ['required', 'image', 'max:5120'],
-            'foto_after_2' => ['required', 'image', 'max:5120'],
-            'foto_after_3' => ['required', 'image', 'max:5120'],
-            'foto_after_4' => ['required', 'image', 'max:5120'],
+            'material_ids' => ['nullable', 'array'],
+            'material_ids.*' => ['uuid', 'exists:cleaning_materials,id'],
+            'foto_after_1' => ['required', 'image', 'max:1024'], // 1MB limit
+            'foto_after_2' => ['required', 'image', 'max:1024'], // 1MB limit
+            'foto_after_3' => ['required', 'image', 'max:1024'], // 1MB limit
+            'foto_after_4' => ['required', 'image', 'max:1024'], // 1MB limit
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'gps_accuracy' => ['nullable', 'numeric'],
@@ -476,7 +522,12 @@ class SubmissionController extends Controller
                 ]);
             }
 
-            // 3. Update status related tasks kembali ke waiting_verification
+            // 3. Simpan bahan kimia / alat pembersih yang digunakan
+            if ($request->has('material_ids') && is_array($request->material_ids)) {
+                $submission->materials()->sync($request->material_ids);
+            }
+
+            // 4. Update status related tasks kembali ke waiting_verification
             foreach ($tasks as $task) {
                 $oldTask = $task->toArray();
                 $task->update([
@@ -485,7 +536,7 @@ class SubmissionController extends Controller
                 AuditLogService::log('UPDATE_TASK_STATUS_TO_WAITING_VERIFICATION', 'tasks', $task->id, $oldTask, $task->toArray());
             }
 
-            // 4. Kirim notifikasi ke PIC aktif ruangan tersebut
+            // 5. Kirim notifikasi ke PIC aktif ruangan tersebut
             $pic = $submission->task?->room?->pic;
             if ($pic) {
                 NotificationService::send(
@@ -502,10 +553,10 @@ class SubmissionController extends Controller
                 );
             }
 
-            AuditLogService::log('RESUBMIT_CHECKLIST_REPORT', 'checklist_submissions', $submission->id, $oldSubmission, $submission->load('results')->toArray());
+            AuditLogService::log('RESUBMIT_CHECKLIST_REPORT', 'checklist_submissions', $submission->id, $oldSubmission, $submission->load(['results', 'materials'])->toArray());
 
             return $this->success(
-                new ChecklistSubmissionResource($submission->load('results.checklistItem')),
+                new ChecklistSubmissionResource($submission->load(['results.checklistItem', 'materials'])),
                 'Laporan kebersihan berhasil diserahkan kembali. Menunggu verifikasi PIC.'
             );
         });

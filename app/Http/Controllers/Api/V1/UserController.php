@@ -167,45 +167,19 @@ class UserController extends Controller
         $oldData = $user->toArray();
 
         return DB::transaction(function () use ($user, $oldData) {
-            // 1. Hapus semua Token Akses Sanctum
+            // 1. Cabut semua Token Akses Sanctum
             $user->tokens()->delete();
 
-            // 2. Hapus histori PIC ruangan
-            RoomPicHistory::where('user_id', $user->id)->delete();
+            // 2. Nonaktifkan status akun
+            $user->update(['is_active' => false]);
 
-            // 3. Hapus penugasan CS
-            CsAssignment::where('cs_user_id', $user->id)->delete();
-
-            // 4. Hapus temuan masalah yang dilaporkan oleh user
-            DB::table('findings')->where('reported_by', $user->id)->delete();
-
-            // 5. Hapus verifikasi yang dilakukan oleh user
-            DB::table('verifications')->where('verified_by', $user->id)->delete();
-
-            // 6. Ambil semua ID submissions oleh user (sebagai CS)
-            $submissionIds = DB::table('checklist_submissions')->where('cs_user_id', $user->id)->pluck('id');
-
-            if ($submissionIds->isNotEmpty()) {
-                // Hapus verifikasi terkait submissions ini
-                DB::table('verifications')->whereIn('submission_id', $submissionIds)->delete();
-
-                // Hapus hasil checklist terkait submissions ini
-                DB::table('checklist_results')->whereIn('submission_id', $submissionIds)->delete();
-
-                // Hapus submissions
-                DB::table('checklist_submissions')->whereIn('id', $submissionIds)->delete();
-            }
-
-            // 7. Hapus hak akses (user_roles)
-            UserRole::where('user_id', $user->id)->delete();
-
-            // 8. Hapus user secara fisik dari database
+            // 3. Soft delete user (menjaga seluruh riwayat historis tugas, verifikasi, temuan, dll)
             $user->delete();
 
             // Catat log audit
             AuditLogService::log('DELETE_USER', 'users', $user->id, $oldData, null);
 
-            return $this->success(null, 'Pengguna berhasil dihapus sepenuhnya.');
+            return $this->success(null, 'Pengguna berhasil dinonaktifkan dan di-soft delete. Data historis tetap terjaga.');
         });
     }
 

@@ -78,6 +78,13 @@ class VerificationController extends Controller
             return $this->error('Laporan ini sudah diproses sebelumnya.', [], 400);
         }
 
+        $request->validate([
+            'notes' => ['nullable', 'string'],
+            'sla_ratings' => ['nullable', 'array'],
+            'sla_ratings.*.sla_parameter_id' => ['required_with:sla_ratings', 'uuid', 'exists:sla_parameters,id'],
+            'sla_ratings.*.nilai' => ['required_with:sla_ratings', 'string'],
+        ]);
+
         return DB::transaction(function () use ($request, $submission) {
             $user = $request->user();
             $roleVerifier = $user->hasRole(\App\Enums\RoleEnum::PIC) ? 'pic' : 'supervisor';
@@ -92,6 +99,18 @@ class VerificationController extends Controller
                 'catatan_perbaikan' => $request->notes ?? 'Laporan disetujui.',
                 'verified_at' => now(),
             ]);
+
+            // 1.1 Simpan SLA Ratings jika ada
+            if ($request->has('sla_ratings') && is_array($request->sla_ratings)) {
+                foreach ($request->sla_ratings as $rating) {
+                    \App\Models\VerificationSlaRating::create([
+                        'id' => (string) Str::uuid(),
+                        'verification_id' => $verification->id,
+                        'sla_parameter_id' => $rating['sla_parameter_id'],
+                        'nilai' => (string) $rating['nilai'],
+                    ]);
+                }
+            }
 
             // 2. Update status submission menjadi approved
             $oldSubData = $submission->toArray();

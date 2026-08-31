@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Verification extends Model
 {
@@ -34,5 +35,10 @@ class Verification extends Model
     public function verifier(): BelongsTo
     {
         return $this->belongsTo(User::class, 'verified_by');
+    }
+
+    public function slaRatings(): HasMany
+    {
+        return $this->hasMany(VerificationSlaRating::class, 'verification_id');
     }
 }

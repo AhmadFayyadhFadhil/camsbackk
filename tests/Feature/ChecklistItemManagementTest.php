@@ -212,12 +212,12 @@ class ChecklistItemManagementTest extends TestCase
         $response->assertStatus(200);
         $response->assertJsonPath('success', true);
 
-        // 8. Verify everything is permanently deleted
-        $this->assertDatabaseMissing('checklist_items', ['id' => $item->id]);
-        $this->assertDatabaseMissing('schedules', ['id' => $schedule->id]);
-        $this->assertDatabaseMissing('tasks', ['id' => $task->id]);
-        $this->assertDatabaseMissing('checklist_submissions', ['id' => $submission->id]);
-        $this->assertDatabaseMissing('checklist_results', ['id' => $result->id]);
-        $this->assertDatabaseMissing('verifications', ['id' => $verification->id]);
+        // 8. Verify soft delete and historical data preservation for audit compliance
+        $this->assertSoftDeleted('checklist_items', ['id' => $item->id]);
+        $this->assertDatabaseHas('schedules', ['id' => $schedule->id]);
+        $this->assertDatabaseHas('tasks', ['id' => $task->id]);
+        $this->assertDatabaseHas('checklist_submissions', ['id' => $submission->id]);
+        $this->assertDatabaseHas('checklist_results', ['id' => $result->id]);
+        $this->assertDatabaseHas('verifications', ['id' => $verification->id]);
     }
 }

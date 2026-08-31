@@ -222,39 +222,71 @@ class DashboardController extends Controller
     public function cs(Request $request)
     {
         $user = $request->user();
+        $today = today()->toDateString();
 
-        // 1. Status Tugas CS hari ini
-        $tasksToday = Task::where('cs_user_id', $user->id)
-            ->whereDate('tanggal_task', today()->toDateString())
+        // 1. Dapatkan ID gedung tempat CS ditugaskan hari ini
+        $buildingIds = \App\Models\CsAssignment::where('cs_user_id', $user->id)
+            ->where('tanggal_mulai', '<=', $today)
+            ->where(function ($query) use ($today) {
+                $query->whereNull('tanggal_selesai')
+                      ->orWhere('tanggal_selesai', '>=', $today);
+            })
+            ->pluck('building_id')
+            ->toArray();
+
+        // 2. Ambil seluruh tugas di gedung penugasan aktif hari ini
+        $tasksToday = Task::whereDate('tanggal_task', $today)
+            ->whereHas('room', function ($q) use ($buildingIds) {
+                $q->whereIn('building_id', $buildingIds);
+            })
+            ->with(['room', 'cs'])
             ->get();
 
+        // 3. Kelompokkan per Ruangan + Shift + Tanggal (representasi 1 area/ruangan fisik)
+        $groupedTasks = $tasksToday->groupBy(function($task) {
+            $taskDate = $task->tanggal_task instanceof Carbon ? $task->tanggal_task->toDateString() : (string) $task->tanggal_task;
+            return $task->room_id . '_' . $task->shift_id . '_' . $taskDate;
+        })->map(function($taskGroup) {
+            $statusPriority = [
+                'in_progress' => 1,
+                'rejected' => 2,
+                'overdue' => 3,
+                'waiting_verification' => 4,
+                'pending' => 5,
+                'completed' => 6,
+            ];
+            $sortedGroup = $taskGroup->sortBy(function($t) use ($statusPriority) {
+                return $statusPriority[$t->status->value] ?? 99;
+            });
+            return $sortedGroup->first();
+        });
+
         $summary = [
-            'total' => $tasksToday->count(),
-            'pending' => $tasksToday->where('status', TaskStatusEnum::PENDING)->count(),
-            'in_progress' => $tasksToday->where('status', TaskStatusEnum::IN_PROGRESS)->count(),
-            'waiting_verification' => $tasksToday->where('status', TaskStatusEnum::WAITING_VERIFICATION)->count(),
-            'completed' => $tasksToday->where('status', TaskStatusEnum::COMPLETED)->count(),
-            'rejected' => $tasksToday->where('status', TaskStatusEnum::REJECTED)->count(),
-            'overdue' => $tasksToday->where('status', TaskStatusEnum::OVERDUE)->count(),
+            'total' => $groupedTasks->count(),
+            'pending' => $groupedTasks->where('status', TaskStatusEnum::PENDING)->count(),
+            'in_progress' => $groupedTasks->where('status', TaskStatusEnum::IN_PROGRESS)->count(),
+            'waiting_verification' => $groupedTasks->where('status', TaskStatusEnum::WAITING_VERIFICATION)->count(),
+            'completed' => $groupedTasks->where('status', TaskStatusEnum::COMPLETED)->count(),
+            'rejected' => $groupedTasks->where('status', TaskStatusEnum::REJECTED)->count(),
+            'overdue' => $groupedTasks->where('status', TaskStatusEnum::OVERDUE)->count(),
         ];
 
-        // 2. Tugas yang mendekati batas waktu pengerjaan (deadline < 60 menit)
+        // 4. Tugas mendesak per ruangan yang mendekati batas waktu pengerjaan (deadline < 60 menit)
         $now = now();
         $oneHourLater = (clone $now)->addMinutes(60);
 
-        $urgentTasks = Task::where('cs_user_id', $user->id)
-            ->whereDate('tanggal_task', today()->toDateString())
-            ->whereIn('status', [TaskStatusEnum::PENDING, TaskStatusEnum::IN_PROGRESS])
-            ->whereBetween('due_datetime', [$now, $oneHourLater])
-            ->with('room')
-            ->get()
-            ->map(fn($t) => [
-                'task_id' => $t->id,
-                'room_name' => $t->room?->nama_ruangan,
-                'room_code' => $t->room?->kode_ruangan,
-                'due_datetime' => $t->due_datetime->toDateTimeString(),
-                'minutes_left' => round($now->diffInMinutes($t->due_datetime)),
-            ]);
+        $urgentTasks = $groupedTasks->filter(function($t) use ($now, $oneHourLater) {
+            return in_array($t->status, [TaskStatusEnum::PENDING, TaskStatusEnum::IN_PROGRESS]) &&
+                   $t->due_datetime && 
+                   $t->due_datetime >= $now && 
+                   $t->due_datetime <= $oneHourLater;
+        })->values()->map(fn($t) => [
+            'task_id' => $t->id,
+            'room_name' => $t->room?->nama_ruangan,
+            'room_code' => $t->room?->kode_ruangan,
+            'due_datetime' => $t->due_datetime?->toDateTimeString(),
+            'minutes_left' => round($now->diffInMinutes($t->due_datetime)),
+        ]);
 
         return $this->success([
             'tasks_summary' => $summary,

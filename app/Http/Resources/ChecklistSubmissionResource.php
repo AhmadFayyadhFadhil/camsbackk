@@ -39,6 +39,12 @@ class ChecklistSubmissionResource extends JsonResource
                 'catatan' => $res->catatan,
                 'notes' => $res->catatan,
             ]) : null,
+            'materials' => $this->relationLoaded('materials') ? $this->materials->map(fn($m) => [
+                'id' => $m->id,
+                'nama_material' => $m->nama_material,
+                'jenis' => $m->jenis,
+                'kode_material' => $m->kode_material,
+            ]) : [],
             'foto_after_1_url' => url("/api/v1/submissions/{$this->id}/foto-after-1"),
             'foto_after_2_url' => url("/api/v1/submissions/{$this->id}/foto-after-2"),
             'foto_after_3_url' => url("/api/v1/submissions/{$this->id}/foto-after-3"),

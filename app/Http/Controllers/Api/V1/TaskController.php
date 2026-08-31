@@ -110,30 +110,48 @@ class TaskController extends Controller
             ->pluck('building_id')
             ->toArray();
 
+        if (empty($buildingIds)) {
+            return $this->success([], 'Tidak ada penugasan gedung aktif untuk akun Anda hari ini.');
+        }
+
         $query = Task::query()
             ->with(['schedule.checklistItem', 'cs', 'room.building', 'shift'])
             ->whereDate('tanggal_task', today()->toDateString())
-            ->where(function ($q) use ($user, $buildingIds) {
-                // Tugas milik CS ini
-                $q->where('cs_user_id', $user->id);
-                
-                // ATAU tugas belum teralokasi, tapi berada di gedung penugasan CS ini
-                if (!empty($buildingIds)) {
-                    $q->orWhere(function ($sub) use ($buildingIds) {
-                        $sub->whereNull('cs_user_id')
-                            ->whereIn('room_id', function ($roomQuery) use ($buildingIds) {
-                                $roomQuery->select('id')
-                                    ->from('rooms')
-                                    ->whereIn('building_id', $buildingIds);
-                            });
-                    });
-                }
+            ->whereHas('room', function ($roomQuery) use ($buildingIds) {
+                $roomQuery->whereIn('building_id', $buildingIds);
             });
 
-        $perPage = $request->get('per_page', 1000);
-        $tasks = $query->paginate($perPage);
+        $rawTasks = $query->get();
 
-        return $this->paginated(TaskResource::collection($tasks), 'Daftar tugas Anda hari ini berhasil diambil.');
+        // Mengelompokkan tugas per Ruangan + Shift + Tanggal agar CS melihat 1 baris tugas per ruangan
+        $groupedTasks = $rawTasks->groupBy(function($task) {
+            $taskDate = $task->tanggal_task instanceof Carbon ? $task->tanggal_task->toDateString() : (string) $task->tanggal_task;
+            return $task->room_id . '_' . $task->shift_id . '_' . $taskDate;
+        })->map(function($taskGroup) {
+            // Prioritas status: in_progress > rejected > overdue > waiting_verification > pending > completed
+            $statusPriority = [
+                'in_progress' => 1,
+                'rejected' => 2,
+                'overdue' => 3,
+                'waiting_verification' => 4,
+                'pending' => 5,
+                'completed' => 6,
+            ];
+
+            $sortedGroup = $taskGroup->sortBy(function($t) use ($statusPriority) {
+                return $statusPriority[$t->status->value] ?? 99;
+            });
+
+            $rep = $sortedGroup->first();
+            $rep->items_count = $taskGroup->count();
+            $rep->checklist_item_names = $taskGroup->map(function($t) {
+                return $t->schedule?->checklistItem?->nama_item;
+            })->filter()->values()->toArray();
+
+            return $rep;
+        })->values();
+
+        return $this->success(TaskResource::collection($groupedTasks), 'Daftar tugas Anda hari ini berhasil diambil.');
     }
 
     /**

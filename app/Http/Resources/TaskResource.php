@@ -13,7 +13,7 @@ class TaskResource extends JsonResource
             'id' => $this->id,
             'schedule_id' => $this->schedule_id,
             'cs_user_id' => $this->cs_user_id,
-            'cs_name' => $this->cs?->full_name,
+            'cs_name' => $this->cs?->full_name ?: $this->cs?->username ?: ($this->cs_user_id ? 'CS' : null),
             'room_id' => $this->room_id,
             'nama_ruangan' => $this->room?->nama_ruangan,
             'kode_ruangan' => $this->room?->kode_ruangan,
@@ -24,6 +24,8 @@ class TaskResource extends JsonResource
             'task_date' => $this->tanggal_task?->toDateString(),
             'status' => $this->status->value,
             'due_datetime' => $this->due_datetime?->toIso8601String(),
+            'items_count' => $this->items_count ?? 1,
+            'item_names' => $this->checklist_item_names ?? ($this->schedule?->checklistItem ? [$this->schedule->checklistItem->nama_item] : []),
             
             // Nested structures expected by frontend (e.g. CsTasks.jsx, Verifications.jsx)
             'room' => $this->room ? [

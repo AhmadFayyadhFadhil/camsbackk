@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use App\Enums\SubmissionStatusEnum;
 
 class ChecklistSubmission extends Model
@@ -77,5 +78,15 @@ class ChecklistSubmission extends Model
     public function verifications(): HasMany
     {
         return $this->hasMany(Verification::class, 'submission_id');
+    }
+
+    public function materials(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            CleaningMaterial::class,
+            'submission_materials',
+            'submission_id',
+            'cleaning_material_id'
+        )->withTimestamps();
     }
 }

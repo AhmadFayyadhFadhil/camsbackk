@@ -52,6 +52,7 @@ class RoomRequest extends FormRequest
             ],
             'lantai' => ['nullable', 'string', 'max:10'],
             'pic_user_id' => ['nullable', 'uuid', 'exists:users,id'],
+            'checklist_template_id' => ['nullable', 'uuid', 'exists:checklist_templates,id'],
         ];
     }
 

@@ -17,6 +17,7 @@ class Finding extends Model
 
     protected $fillable = [
         'room_id',
+        'room_asset_id',
         'finding_category_id',
         'reported_by',
         'assigned_to',
@@ -63,6 +64,11 @@ class Finding extends Model
     public function room(): BelongsTo
     {
         return $this->belongsTo(Room::class, 'room_id');
+    }
+
+    public function asset(): BelongsTo
+    {
+        return $this->belongsTo(RoomAsset::class, 'room_asset_id');
     }
 
     public function category(): BelongsTo

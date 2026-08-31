@@ -18,6 +18,11 @@ use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\FindingCategoryController;
 use App\Http\Controllers\Api\V1\SystemSettingController;
 use App\Http\Controllers\Api\V1\ShiftController;
+use App\Http\Controllers\Api\V1\ChecklistTemplateController;
+use App\Http\Controllers\Api\V1\RoomAssetController;
+use App\Http\Controllers\Api\V1\CleaningMaterialController;
+use App\Http\Controllers\Api\V1\SlaParameterController;
+use App\Http\Controllers\Api\V1\AdhocTaskController;
 
 Route::prefix('v1')->group(function () {
     // 1. Auth Rute Publik (Dilindungi Rate Limiting Login)
@@ -63,16 +68,45 @@ Route::prefix('v1')->group(function () {
             Route::patch('shifts/{id}', [ShiftController::class, 'update']);
             Route::delete('shifts/{id}', [ShiftController::class, 'destroy']);
 
-            // Modul Jadwal Kerja - Full CRUD
+            // Modul Template Checklist - Full CRUD
+            Route::apiResource('checklist-templates', ChecklistTemplateController::class);
+
+            // Modul Aset Ruangan - Write
+            Route::post('room-assets', [RoomAssetController::class, 'store']);
+            Route::put('room-assets/{id}', [RoomAssetController::class, 'update']);
+            Route::patch('room-assets/{id}', [RoomAssetController::class, 'update']);
+            Route::delete('room-assets/{id}', [RoomAssetController::class, 'destroy']);
+
+            // Modul Bahan Kimia & Alat Kerja - Write
+            Route::post('cleaning-materials', [CleaningMaterialController::class, 'store']);
+            Route::put('cleaning-materials/{id}', [CleaningMaterialController::class, 'update']);
+            Route::patch('cleaning-materials/{id}', [CleaningMaterialController::class, 'update']);
+            Route::delete('cleaning-materials/{id}', [CleaningMaterialController::class, 'destroy']);
+
+            // Modul Parameter SLA - Write
+            Route::post('sla-parameters', [SlaParameterController::class, 'store']);
+            Route::put('sla-parameters/{id}', [SlaParameterController::class, 'update']);
+            Route::patch('sla-parameters/{id}', [SlaParameterController::class, 'update']);
+            Route::delete('sla-parameters/{id}', [SlaParameterController::class, 'destroy']);
+
+            // Modul Jadwal Kerja - Full CRUD + Fast Aggregated Init Data + Apply Template + Clear All
+            Route::get('schedules/init-data', [ScheduleController::class, 'initData']);
+            Route::post('schedules/apply-template', [ScheduleController::class, 'applyTemplate']);
+            Route::delete('schedules/clear-all', [ScheduleController::class, 'clearAll']);
             Route::apiResource('schedules', ScheduleController::class);
 
             // Modul Penugasan Kerja CS - Full CRUD
             Route::apiResource('cs-assignments', CsAssignmentController::class);
         });
 
-        // Modul Pengguna (Users) - Admin & Supervisor
+        // Modul Pengguna (Users) - Read: Admin & Supervisor, Write: Admin Only
         Route::get('users/assignable', [UserController::class, 'assignableUsers'])->middleware('role:admin,supervisor');
-        Route::apiResource('users', UserController::class)->middleware('role:admin');
+        Route::get('users', [UserController::class, 'index'])->middleware('role:admin,supervisor');
+        Route::get('users/{id}', [UserController::class, 'show'])->middleware('role:admin,supervisor');
+        Route::post('users', [UserController::class, 'store'])->middleware('role:admin');
+        Route::put('users/{id}', [UserController::class, 'update'])->middleware('role:admin');
+        Route::patch('users/{id}', [UserController::class, 'update'])->middleware('role:admin');
+        Route::delete('users/{id}', [UserController::class, 'destroy'])->middleware('role:admin');
 
         // Rute Read-Only Publik untuk Master Data (Di luar grup di atas, tetap dalam auth:sanctum)
         Route::get('buildings', [BuildingController::class, 'index']);
@@ -81,8 +115,25 @@ Route::prefix('v1')->group(function () {
         Route::get('rooms/{id}', [RoomController::class, 'show']);
         Route::get('checklist-items', [ChecklistItemController::class, 'index']);
         Route::get('checklist-items/{id}', [ChecklistItemController::class, 'show']);
+        Route::get('checklist-templates', [ChecklistTemplateController::class, 'index']);
+        Route::get('checklist-templates/{id}', [ChecklistTemplateController::class, 'show']);
+        Route::get('room-assets', [RoomAssetController::class, 'index']);
+        Route::get('room-assets/{id}', [RoomAssetController::class, 'show']);
+        Route::get('cleaning-materials', [CleaningMaterialController::class, 'index']);
+        Route::get('cleaning-materials/{id}', [CleaningMaterialController::class, 'show']);
+        Route::get('sla-parameters', [SlaParameterController::class, 'index']);
+        Route::get('sla-parameters/{id}', [SlaParameterController::class, 'show']);
         Route::get('shifts', [ShiftController::class, 'index']);
         Route::get('shifts/{id}', [ShiftController::class, 'show']);
+
+        // Modul Tugas Ad-hoc (Instant Tasks)
+        Route::get('adhoc-tasks', [AdhocTaskController::class, 'index']);
+        Route::post('adhoc-tasks', [AdhocTaskController::class, 'store'])->middleware('role:admin,supervisor');
+        Route::get('adhoc-tasks/{id}', [AdhocTaskController::class, 'show']);
+        Route::post('adhoc-tasks/{id}/start', [AdhocTaskController::class, 'start']);
+        Route::post('adhoc-tasks/{id}/submit', [AdhocTaskController::class, 'submit']);
+        Route::post('adhoc-tasks/{id}/verify', [AdhocTaskController::class, 'verify'])->middleware('role:admin,supervisor');
+        Route::get('adhoc-tasks/{id}/foto-bukti', [AdhocTaskController::class, 'streamFotoBukti']);
 
         // Modul Khusus Cleaning Service (Dengan Validasi Shift Kerja & Role CS)
         Route::middleware(['cs.shift', 'role:cs'])->group(function () {
@@ -127,7 +178,10 @@ Route::prefix('v1')->group(function () {
         // Modul Notifikasi (SSE & History)
         Route::get('notifications/stream', [NotificationController::class, 'stream']);
         Route::get('notifications', [NotificationController::class, 'index']);
+        Route::patch('notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
+        Route::delete('notifications/delete-all', [NotificationController::class, 'destroyAll']);
         Route::patch('notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+        Route::delete('notifications/{id}', [NotificationController::class, 'destroy']);
 
         // Modul Dashboard (Analitik per Role)
         Route::get('dashboard/supervisor', [DashboardController::class, 'supervisor'])->middleware('role:admin,supervisor');

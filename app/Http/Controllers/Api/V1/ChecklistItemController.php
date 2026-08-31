@@ -114,64 +114,13 @@ class ChecklistItemController extends Controller
         $oldData = $item->toArray();
 
         return \Illuminate\Support\Facades\DB::transaction(function () use ($item, $oldData) {
-            // 1. Dapatkan semua ID jadwal (schedules) yang menggunakan item checklist ini
-            $scheduleIds = \Illuminate\Support\Facades\DB::table('schedules')
-                ->where('checklist_item_id', $item->id)
-                ->pluck('id');
-
-            if ($scheduleIds->isNotEmpty()) {
-                // Dapatkan semua ID tugas (tasks) yang terikat ke jadwal-jadwal tersebut
-                $taskIds = \Illuminate\Support\Facades\DB::table('tasks')
-                    ->whereIn('schedule_id', $scheduleIds)
-                    ->pluck('id');
-
-                if ($taskIds->isNotEmpty()) {
-                    // Dapatkan semua ID laporan kebersihan (checklist_submissions)
-                    $submissionIds = \Illuminate\Support\Facades\DB::table('checklist_submissions')
-                        ->whereIn('task_id', $taskIds)
-                        ->pluck('id');
-
-                    if ($submissionIds->isNotEmpty()) {
-                        // Hapus verifikasi terkait laporan ini
-                        \Illuminate\Support\Facades\DB::table('verifications')
-                            ->whereIn('submission_id', $submissionIds)
-                            ->delete();
-
-                        // Hapus detail hasil checklist terkait laporan ini
-                        \Illuminate\Support\Facades\DB::table('checklist_results')
-                            ->whereIn('submission_id', $submissionIds)
-                            ->delete();
-
-                        // Hapus laporan kebersihan
-                        \Illuminate\Support\Facades\DB::table('checklist_submissions')
-                            ->whereIn('id', $submissionIds)
-                            ->delete();
-                    }
-
-                    // Hapus tugas
-                    \Illuminate\Support\Facades\DB::table('tasks')
-                        ->whereIn('id', $taskIds)
-                        ->delete();
-                }
-
-                // Hapus jadwal
-                \Illuminate\Support\Facades\DB::table('schedules')
-                    ->whereIn('id', $scheduleIds)
-                    ->delete();
-            }
-
-            // 2. Hapus sisa hasil checklist yang langsung merujuk ke item checklist ini
-            \Illuminate\Support\Facades\DB::table('checklist_results')
-                ->where('checklist_item_id', $item->id)
-                ->delete();
-
-            // 3. Hapus item checklist secara fisik
+            $item->update(['is_active' => false]);
             $item->delete();
 
             // Catat log audit
             AuditLogService::log('DELETE_CHECKLIST_ITEM', 'checklist_items', $item->id, $oldData, null);
 
-            return $this->success(null, 'Item checklist berhasil dihapus sepenuhnya beserta seluruh data terkait.');
+            return $this->success(null, 'Item checklist berhasil dinonaktifkan dan di-soft delete. Data historis tetap terjaga.');
         });
     }
 }
