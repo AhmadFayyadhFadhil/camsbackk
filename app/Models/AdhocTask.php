@@ -21,9 +21,14 @@ class AdhocTask extends Model
         'judul',
         'deskripsi',
         'priority', // low, medium, high
+        'task_type', // immediate, scheduled_event
+        'due_datetime',
+        'event_start_time',
+        'checklist_items',
         'status', // pending, in_progress, submitted, verified, rejected
         'foto_bukti',
         'foto_bukti_mime',
+        'verification_notes',
         'started_at',
         'submitted_at',
         'verified_at',
@@ -34,6 +39,9 @@ class AdhocTask extends Model
     ];
 
     protected $casts = [
+        'due_datetime' => 'datetime',
+        'event_start_time' => 'datetime',
+        'checklist_items' => 'array',
         'started_at' => 'datetime',
         'submitted_at' => 'datetime',
         'verified_at' => 'datetime',

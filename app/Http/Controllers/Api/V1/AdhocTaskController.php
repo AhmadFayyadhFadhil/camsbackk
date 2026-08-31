@@ -29,12 +29,35 @@ class AdhocTaskController extends Controller
             $query->where('cs_user_id', $user->id);
         }
 
-        if ($request->has('status')) {
+        if ($request->has('task_type') && $request->filled('task_type')) {
+            $query->where('task_type', $request->get('task_type'));
+        }
+
+        if ($request->has('status') && $request->filled('status')) {
             $query->where('status', $request->get('status'));
         }
 
-        if ($request->has('priority')) {
+        if ($request->has('priority') && $request->filled('priority')) {
             $query->where('priority', $request->get('priority'));
+        }
+
+        if ($request->has('building_id') && $request->filled('building_id')) {
+            $buildingId = $request->get('building_id');
+            $query->whereHas('room', function ($rq) use ($buildingId) {
+                $rq->where('building_id', $buildingId);
+            });
+        }
+
+        if ($request->has('search') && $request->filled('search')) {
+            $search = $request->get('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('judul', 'like', "%{$search}%")
+                  ->orWhere('deskripsi', 'like', "%{$search}%")
+                  ->orWhereHas('room', function ($rq) use ($search) {
+                      $rq->where('nama_ruangan', 'like', "%{$search}%")
+                         ->orWhere('kode_ruangan', 'like', "%{$search}%");
+                  });
+            });
         }
 
         if ($request->has('cs_user_id') && !$user->hasRole(RoleEnum::CS)) {
@@ -42,14 +65,15 @@ class AdhocTaskController extends Controller
         }
 
         $query->orderByRaw("FIELD(status, 'pending', 'in_progress', 'submitted', 'verified', 'rejected')")
+              ->orderBy('due_datetime', 'asc')
               ->orderBy('created_at', 'desc');
 
-        $perPage = $request->get('per_page', 20);
+        $perPage = $request->get('per_page', 30);
         $tasks = $query->paginate($perPage);
 
         return $this->paginated(
             AdhocTaskResource::collection($tasks),
-            'Daftar tugas ad-hoc berhasil diambil.'
+            'Daftar tugas khusus & terjadwal berhasil diambil.'
         );
     }
 
@@ -64,7 +88,34 @@ class AdhocTaskController extends Controller
             'judul' => ['required', 'string', 'max:255'],
             'deskripsi' => ['required', 'string'],
             'priority' => ['nullable', 'string', 'in:low,medium,high'],
+            'task_type' => ['nullable', 'string', 'in:immediate,scheduled_event'],
+            'due_datetime' => ['nullable', 'date'],
+            'event_start_time' => ['nullable', 'date'],
+            'checklist_items' => ['nullable', 'array'],
         ]);
+
+        $taskType = $request->input('task_type', 'immediate');
+        $checklistItems = $request->input('checklist_items', []);
+
+        // Normalize checklist items structure
+        if (is_array($checklistItems)) {
+            $checklistItems = array_map(function ($item, $idx) {
+                if (is_string($item)) {
+                    return [
+                        'id' => $idx + 1,
+                        'task' => trim($item),
+                        'is_done' => false,
+                        'done_at' => null,
+                    ];
+                }
+                return [
+                    'id' => $item['id'] ?? ($idx + 1),
+                    'task' => $item['task'] ?? '',
+                    'is_done' => !empty($item['is_done']),
+                    'done_at' => $item['done_at'] ?? null,
+                ];
+            }, $checklistItems, array_keys($checklistItems));
+        }
 
         $task = AdhocTask::create([
             'id' => (string) Str::uuid(),
@@ -74,20 +125,33 @@ class AdhocTaskController extends Controller
             'judul' => $request->judul,
             'deskripsi' => $request->deskripsi,
             'priority' => $request->input('priority', 'medium'),
+            'task_type' => $taskType,
+            'due_datetime' => $request->due_datetime ? date('Y-m-d H:i:s', strtotime($request->due_datetime)) : null,
+            'event_start_time' => $request->event_start_time ? date('Y-m-d H:i:s', strtotime($request->event_start_time)) : null,
+            'checklist_items' => $checklistItems,
             'status' => 'pending',
         ]);
 
         $task->load(['creator', 'cs', 'room.building']);
 
         // Kirim notifikasi real-time ke CS
+        $notifTitle = $taskType === 'scheduled_event' 
+            ? "Tugas Terjadwal / Persiapan Acara: {$task->judul}"
+            : "Tugas Mendadak: {$task->judul}";
+
+        $notifMsg = $taskType === 'scheduled_event'
+            ? "Supervisor {$request->user()->full_name} menugaskan persiapan acara/meeting: {$task->judul}. Target Selesai: " . ($task->due_datetime ? $task->due_datetime->format('d M Y H:i') : 'Sesuai Jadwal')
+            : "Supervisor {$request->user()->full_name} memberikan tugas mendadak: {$task->judul}. Prioritas: " . strtoupper($task->priority);
+
         NotificationService::send(
             $task->cs_user_id,
             'ADHOC_TASK_ASSIGNED',
-            "Tugas Mendadak: {$task->judul}",
-            "Supervisor {$request->user()->full_name} memberikan tugas mendadak: {$task->judul}. Prioritas: " . strtoupper($task->priority),
+            $notifTitle,
+            $notifMsg,
             [
                 'adhoc_task_id' => $task->id,
                 'judul' => $task->judul,
+                'task_type' => $task->task_type,
                 'priority' => $task->priority,
             ],
             'both'
@@ -95,7 +159,82 @@ class AdhocTaskController extends Controller
 
         AuditLogService::log('CREATE_ADHOC_TASK', 'adhoc_tasks', $task->id, null, $task->toArray());
 
-        return $this->success(new AdhocTaskResource($task), 'Tugas ad-hoc berhasil dibuat dan ditugaskan ke CS.', 201);
+        return $this->success(new AdhocTaskResource($task), 'Tugas khusus / terjadwal berhasil dibuat dan ditugaskan ke CS.', 201);
+    }
+
+    /**
+     * PUT /adhoc-tasks/{id} (admin, supervisor)
+     */
+    public function update(Request $request, $id)
+    {
+        $task = AdhocTask::findOrFail($id);
+
+        $request->validate([
+            'cs_user_id' => ['sometimes', 'uuid', 'exists:users,id'],
+            'room_id' => ['nullable', 'uuid', 'exists:rooms,id'],
+            'judul' => ['sometimes', 'string', 'max:255'],
+            'deskripsi' => ['sometimes', 'string'],
+            'priority' => ['nullable', 'string', 'in:low,medium,high'],
+            'task_type' => ['nullable', 'string', 'in:immediate,scheduled_event'],
+            'due_datetime' => ['nullable', 'date'],
+            'event_start_time' => ['nullable', 'date'],
+            'checklist_items' => ['nullable', 'array'],
+        ]);
+
+        $oldData = $task->toArray();
+
+        $updateData = [];
+        if ($request->has('cs_user_id')) $updateData['cs_user_id'] = $request->cs_user_id;
+        if ($request->has('room_id')) $updateData['room_id'] = $request->room_id;
+        if ($request->has('judul')) $updateData['judul'] = $request->judul;
+        if ($request->has('deskripsi')) $updateData['deskripsi'] = $request->deskripsi;
+        if ($request->has('priority')) $updateData['priority'] = $request->priority;
+        if ($request->has('task_type')) $updateData['task_type'] = $request->task_type;
+        if ($request->has('due_datetime')) $updateData['due_datetime'] = $request->due_datetime ? date('Y-m-d H:i:s', strtotime($request->due_datetime)) : null;
+        if ($request->has('event_start_time')) $updateData['event_start_time'] = $request->event_start_time ? date('Y-m-d H:i:s', strtotime($request->event_start_time)) : null;
+        
+        if ($request->has('checklist_items')) {
+            $checklistItems = $request->input('checklist_items', []);
+            if (is_array($checklistItems)) {
+                $checklistItems = array_map(function ($item, $idx) {
+                    if (is_string($item)) {
+                        return [
+                            'id' => $idx + 1,
+                            'task' => trim($item),
+                            'is_done' => false,
+                            'done_at' => null,
+                        ];
+                    }
+                    return [
+                        'id' => $item['id'] ?? ($idx + 1),
+                        'task' => $item['task'] ?? '',
+                        'is_done' => !empty($item['is_done']),
+                        'done_at' => $item['done_at'] ?? null,
+                    ];
+                }, $checklistItems, array_keys($checklistItems));
+            }
+            $updateData['checklist_items'] = $checklistItems;
+        }
+
+        $task->update($updateData);
+
+        AuditLogService::log('UPDATE_ADHOC_TASK', 'adhoc_tasks', $task->id, $oldData, $task->toArray());
+
+        return $this->success(new AdhocTaskResource($task->load(['creator', 'cs', 'room.building'])), 'Data penugasan berhasil diperbarui.');
+    }
+
+    /**
+     * DELETE /adhoc-tasks/{id} (admin, supervisor)
+     */
+    public function destroy($id)
+    {
+        $task = AdhocTask::findOrFail($id);
+        $oldData = $task->toArray();
+        $task->delete();
+
+        AuditLogService::log('DELETE_ADHOC_TASK', 'adhoc_tasks', $task->id, $oldData, null);
+
+        return $this->success(null, 'Tugas khusus / terjadwal berhasil dihapus.');
     }
 
     /**
@@ -127,7 +266,7 @@ class AdhocTaskController extends Controller
 
         AuditLogService::log('START_ADHOC_TASK', 'adhoc_tasks', $task->id, $oldData, $task->toArray());
 
-        return $this->success(new AdhocTaskResource($task->load(['creator', 'cs', 'room.building'])), 'Tugas ad-hoc dimulai. Tugas harian di-pause sementara.');
+        return $this->success(new AdhocTaskResource($task->load(['creator', 'cs', 'room.building'])), 'Tugas dimulai. Tugas harian di-pause sementara.');
     }
 
     /**
@@ -144,25 +283,35 @@ class AdhocTaskController extends Controller
 
         $request->validate([
             'foto_bukti' => ['required', 'image', 'max:1024'], // 1MB limit
+            'checklist_items' => ['nullable', 'array'],
         ]);
 
         $fotoBinary = file_get_contents($request->file('foto_bukti')->getRealPath());
         $mimeType = $request->file('foto_bukti')->getMimeType();
 
-        $oldData = $task->toArray();
-        $task->update([
+        $updateData = [
             'status' => 'submitted',
             'foto_bukti' => $fotoBinary,
             'foto_bukti_mime' => $mimeType,
             'submitted_at' => now(),
-        ]);
+        ];
+
+        if ($request->has('checklist_items')) {
+            $checklistItems = $request->input('checklist_items');
+            if (is_array($checklistItems)) {
+                $updateData['checklist_items'] = $checklistItems;
+            }
+        }
+
+        $oldData = $task->toArray();
+        $task->update($updateData);
 
         // Notifikasi ke pembuat tugas (Supervisor)
         NotificationService::send(
             $task->created_by,
             'ADHOC_TASK_SUBMITTED',
-            "Tugas Mendadak Selesai: {$task->judul}",
-            "CS {$user->full_name} telah menyelesaikan tugas mendadak: {$task->judul} beserta bukti foto.",
+            "Tugas Selesai: {$task->judul}",
+            "CS {$user->full_name} telah menyelesaikan penugasan: {$task->judul} beserta bukti foto dan checklist.",
             [
                 'adhoc_task_id' => $task->id,
                 'cs_name' => $user->full_name,
@@ -175,7 +324,7 @@ class AdhocTaskController extends Controller
 
         return $this->success(
             new AdhocTaskResource($task->load(['creator', 'cs', 'room.building'])),
-            'Laporan tugas ad-hoc berhasil dikirim. Tugas harian Anda otomatis diaktifkan kembali (auto-resume).'
+            'Laporan penugasan berhasil dikirim.'
         );
     }
 
@@ -196,16 +345,17 @@ class AdhocTaskController extends Controller
 
         $task->update([
             'status' => $newStatus,
+            'verification_notes' => $request->catatan,
             'verified_at' => now(),
         ]);
 
         // Notifikasi ke CS
-        $statusLabel = $newStatus === 'verified' ? 'Disetujui' : 'Ditolak/Perlu Perbaikan';
+        $statusLabel = $newStatus === 'verified' ? 'Disetujui / Ruangan Siap' : 'Ditolak / Perlu Perbaikan';
         NotificationService::send(
             $task->cs_user_id,
             'ADHOC_TASK_VERIFIED',
-            "Verifikasi Tugas Mendadak: {$task->judul} ({$statusLabel})",
-            "Laporan tugas mendadak '{$task->judul}' telah diverifikasi oleh {$request->user()->full_name}. Status: {$statusLabel}." . ($request->catatan ? " Catatan: {$request->catatan}" : ""),
+            "Verifikasi Penugasan: {$task->judul} ({$statusLabel})",
+            "Laporan tugas '{$task->judul}' telah diverifikasi oleh {$request->user()->full_name}. Status: {$statusLabel}." . ($request->catatan ? " Catatan: {$request->catatan}" : ""),
             [
                 'adhoc_task_id' => $task->id,
                 'status' => $newStatus,
@@ -216,7 +366,7 @@ class AdhocTaskController extends Controller
 
         AuditLogService::log('VERIFY_ADHOC_TASK', 'adhoc_tasks', $task->id, $oldData, $task->toArray());
 
-        return $this->success(new AdhocTaskResource($task->load(['creator', 'cs', 'room.building'])), "Tugas ad-hoc berhasil di-{$newStatus}.");
+        return $this->success(new AdhocTaskResource($task->load(['creator', 'cs', 'room.building'])), "Tugas berhasil di-{$newStatus}.");
     }
 
     /**
@@ -227,7 +377,7 @@ class AdhocTaskController extends Controller
         $task = AdhocTask::findOrFail($id);
 
         if (!$task->foto_bukti) {
-            return $this->error('Foto bukti tugas ad-hoc tidak ditemukan.', [], 404);
+            return $this->error('Foto bukti tugas tidak ditemukan.', [], 404);
         }
 
         $mimeType = $task->foto_bukti_mime ?? 'image/jpeg';

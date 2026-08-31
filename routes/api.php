@@ -141,10 +141,12 @@ Route::prefix('v1')->group(function () {
         Route::post('room-asset-audits/{id}/verify', [RoomAssetAuditController::class, 'verify'])->middleware('role:admin,supervisor');
         Route::get('room-asset-audits/{auditId}/items/{itemId}/foto', [RoomAssetAuditController::class, 'streamFoto']);
 
-        // Modul Tugas Ad-hoc (Instant Tasks)
+        // Modul Tugas Khusus, Ad-hoc & Event Terjadwal
         Route::get('adhoc-tasks', [AdhocTaskController::class, 'index']);
         Route::post('adhoc-tasks', [AdhocTaskController::class, 'store'])->middleware('role:admin,supervisor');
         Route::get('adhoc-tasks/{id}', [AdhocTaskController::class, 'show']);
+        Route::put('adhoc-tasks/{id}', [AdhocTaskController::class, 'update'])->middleware('role:admin,supervisor');
+        Route::delete('adhoc-tasks/{id}', [AdhocTaskController::class, 'destroy'])->middleware('role:admin,supervisor');
         Route::post('adhoc-tasks/{id}/start', [AdhocTaskController::class, 'start']);
         Route::post('adhoc-tasks/{id}/submit', [AdhocTaskController::class, 'submit']);
         Route::post('adhoc-tasks/{id}/verify', [AdhocTaskController::class, 'verify'])->middleware('role:admin,supervisor');
