@@ -282,7 +282,7 @@ class AdhocTaskController extends Controller
         }
 
         $request->validate([
-            'foto_bukti' => ['required', 'image', 'max:1024'], // 1MB limit
+            'foto_bukti' => ['required', 'image', 'max:5120'], // 5MB limit
             'checklist_items' => ['nullable', 'array'],
         ]);
 
@@ -301,6 +301,14 @@ class AdhocTaskController extends Controller
         if ($request->has('checklist_items')) {
             $checklistItems = $request->input('checklist_items');
             if (is_array($checklistItems)) {
+                $checklistItems = array_map(function ($item) {
+                    return [
+                        'id' => $item['id'] ?? null,
+                        'task' => $item['task'] ?? '',
+                        'is_done' => filter_var($item['is_done'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                        'done_at' => !empty($item['done_at']) ? $item['done_at'] : null,
+                    ];
+                }, $checklistItems);
                 $updateData['checklist_items'] = $checklistItems;
             }
         }
@@ -343,7 +351,7 @@ class AdhocTaskController extends Controller
         }
 
         $request->validate([
-            'foto_bukti' => ['required', 'image', 'max:1024'], // 1MB limit
+            'foto_bukti' => ['required', 'image', 'max:5120'], // 5MB limit
             'checklist_items' => ['nullable', 'array'],
         ]);
 
@@ -368,6 +376,14 @@ class AdhocTaskController extends Controller
         if ($request->has('checklist_items')) {
             $checklistItems = $request->input('checklist_items');
             if (is_array($checklistItems)) {
+                $checklistItems = array_map(function ($item) {
+                    return [
+                        'id' => $item['id'] ?? null,
+                        'task' => $item['task'] ?? '',
+                        'is_done' => filter_var($item['is_done'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                        'done_at' => !empty($item['done_at']) ? $item['done_at'] : null,
+                    ];
+                }, $checklistItems);
                 $updateData['checklist_items'] = $checklistItems;
             }
         }
@@ -411,7 +427,7 @@ class AdhocTaskController extends Controller
         }
 
         $request->validate([
-            'foto_bukti_cleanup' => ['required', 'image', 'max:1024'], // 1MB limit
+            'foto_bukti_cleanup' => ['required', 'image', 'max:5120'], // 5MB limit
         ]);
 
         $fotoBinary = file_get_contents($request->file('foto_bukti_cleanup')->getRealPath());
