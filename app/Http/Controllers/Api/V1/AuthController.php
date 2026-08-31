@@ -16,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Carbon\Carbon;
 
 class AuthController extends Controller
@@ -199,23 +200,29 @@ class AuthController extends Controller
 
         $request->validate([
             'full_name' => ['required', 'string', 'max:100'],
+            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'phone' => ['nullable', 'string', 'max:20'],
             'foto_profile' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:3072'],
             'remove_photo' => ['nullable'],
         ], [
             'full_name.required' => 'Nama lengkap wajib diisi.',
+            'email.required' => 'Alamat email wajib diisi.',
+            'email.email' => 'Format alamat email tidak valid.',
+            'email.unique' => 'Alamat email sudah digunakan oleh akun lain.',
             'foto_profile.image' => 'File foto profil harus berupa gambar yang valid (JPEG, PNG, WEBP).',
             'foto_profile.max' => 'Ukuran foto profil maksimal 3 MB.',
         ]);
 
         $oldData = [
             'full_name' => $user->full_name,
+            'email' => $user->email,
             'phone' => $user->phone,
             'foto_profile' => $user->foto_profile,
         ];
 
         $updateData = [
             'full_name' => $request->full_name,
+            'email' => $request->email,
             'phone' => $request->phone,
         ];
 
