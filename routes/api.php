@@ -149,8 +149,12 @@ Route::prefix('v1')->group(function () {
         Route::delete('adhoc-tasks/{id}', [AdhocTaskController::class, 'destroy'])->middleware('role:admin,supervisor');
         Route::post('adhoc-tasks/{id}/start', [AdhocTaskController::class, 'start']);
         Route::post('adhoc-tasks/{id}/submit', [AdhocTaskController::class, 'submit']);
+        Route::post('adhoc-tasks/{id}/submit-setup', [AdhocTaskController::class, 'submitSetup']);
+        Route::post('adhoc-tasks/{id}/submit-cleanup', [AdhocTaskController::class, 'submitCleanup']);
         Route::post('adhoc-tasks/{id}/verify', [AdhocTaskController::class, 'verify'])->middleware('role:admin,supervisor');
         Route::get('adhoc-tasks/{id}/foto-bukti', [AdhocTaskController::class, 'streamFotoBukti']);
+        Route::get('adhoc-tasks/{id}/foto-persiapan', [AdhocTaskController::class, 'streamFotoPersiapan']);
+        Route::get('adhoc-tasks/{id}/foto-cleanup', [AdhocTaskController::class, 'streamFotoCleanup']);
 
         // Modul Khusus Cleaning Service (Dengan Validasi Shift Kerja & Role CS)
         Route::middleware(['cs.shift', 'role:cs'])->group(function () {

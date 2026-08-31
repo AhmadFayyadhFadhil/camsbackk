@@ -270,7 +270,7 @@ class AdhocTaskController extends Controller
     }
 
     /**
-     * POST /adhoc-tasks/{id}/submit (cs)
+     * POST /adhoc-tasks/{id}/submit (cs) - Umum / Backward Compatibility
      */
     public function submit(Request $request, $id)
     {
@@ -291,9 +291,11 @@ class AdhocTaskController extends Controller
 
         $updateData = [
             'status' => 'submitted',
+            'stage' => 'completed',
             'foto_bukti' => $fotoBinary,
             'foto_bukti_mime' => $mimeType,
             'submitted_at' => now(),
+            'setup_submitted_at' => now(),
         ];
 
         if ($request->has('checklist_items')) {
@@ -311,7 +313,7 @@ class AdhocTaskController extends Controller
             $task->created_by,
             'ADHOC_TASK_SUBMITTED',
             "Tugas Selesai: {$task->judul}",
-            "CS {$user->full_name} telah menyelesaikan penugasan: {$task->judul} beserta bukti foto dan checklist.",
+            "CS {$user->full_name} telah menyelesaikan penugasan: {$task->judul} beserta bukti foto.",
             [
                 'adhoc_task_id' => $task->id,
                 'cs_name' => $user->full_name,
@@ -325,6 +327,125 @@ class AdhocTaskController extends Controller
         return $this->success(
             new AdhocTaskResource($task->load(['creator', 'cs', 'room.building'])),
             'Laporan penugasan berhasil dikirim.'
+        );
+    }
+
+    /**
+     * POST /adhoc-tasks/{id}/submit-setup (cs) - Tahap 1: Foto Bukti Persiapan Ruangan
+     */
+    public function submitSetup(Request $request, $id)
+    {
+        $task = AdhocTask::findOrFail($id);
+        $user = $request->user();
+
+        if ($task->cs_user_id !== $user->id && !$user->hasRole(RoleEnum::ADMIN) && !$user->hasRole(RoleEnum::SUPERVISOR)) {
+            return $this->error('Akses ditolak. Tugas ini tidak ditugaskan kepada Anda.', [], 403);
+        }
+
+        $request->validate([
+            'foto_bukti' => ['required', 'image', 'max:1024'], // 1MB limit
+            'checklist_items' => ['nullable', 'array'],
+        ]);
+
+        $fotoBinary = file_get_contents($request->file('foto_bukti')->getRealPath());
+        $mimeType = $request->file('foto_bukti')->getMimeType();
+
+        $updateData = [
+            'foto_bukti' => $fotoBinary,
+            'foto_bukti_mime' => $mimeType,
+            'setup_submitted_at' => now(),
+        ];
+
+        if ($task->task_type === 'scheduled_event' || $task->requires_cleanup) {
+            $updateData['stage'] = 'setup_submitted';
+            $updateData['status'] = 'in_progress';
+        } else {
+            $updateData['stage'] = 'completed';
+            $updateData['status'] = 'submitted';
+            $updateData['submitted_at'] = now();
+        }
+
+        if ($request->has('checklist_items')) {
+            $checklistItems = $request->input('checklist_items');
+            if (is_array($checklistItems)) {
+                $updateData['checklist_items'] = $checklistItems;
+            }
+        }
+
+        $oldData = $task->toArray();
+        $task->update($updateData);
+
+        // Notifikasi ke Supervisor
+        NotificationService::send(
+            $task->created_by,
+            'ADHOC_TASK_SETUP_READY',
+            "Ruang Meeting Siap: {$task->judul}",
+            "CS {$user->full_name} telah selesai menyiapkan ruangan untuk acara: {$task->judul} beserta foto bukti persiapan.",
+            [
+                'adhoc_task_id' => $task->id,
+                'cs_name' => $user->full_name,
+                'judul' => $task->judul,
+                'stage' => $task->stage,
+            ],
+            'both'
+        );
+
+        AuditLogService::log('SUBMIT_SETUP_ADHOC_TASK', 'adhoc_tasks', $task->id, $oldData, $task->toArray());
+
+        return $this->success(
+            new AdhocTaskResource($task->load(['creator', 'cs', 'room.building'])),
+            'Laporan persiapan ruangan berhasil dikirim. Ruangan kini siap digunakan untuk meeting.'
+        );
+    }
+
+    /**
+     * POST /adhoc-tasks/{id}/submit-cleanup (cs) - Tahap 2: Foto Bukti Perapihan Pasca-Meeting
+     */
+    public function submitCleanup(Request $request, $id)
+    {
+        $task = AdhocTask::findOrFail($id);
+        $user = $request->user();
+
+        if ($task->cs_user_id !== $user->id && !$user->hasRole(RoleEnum::ADMIN) && !$user->hasRole(RoleEnum::SUPERVISOR)) {
+            return $this->error('Akses ditolak. Tugas ini tidak ditugaskan kepada Anda.', [], 403);
+        }
+
+        $request->validate([
+            'foto_bukti_cleanup' => ['required', 'image', 'max:1024'], // 1MB limit
+        ]);
+
+        $fotoBinary = file_get_contents($request->file('foto_bukti_cleanup')->getRealPath());
+        $mimeType = $request->file('foto_bukti_cleanup')->getMimeType();
+
+        $oldData = $task->toArray();
+        $task->update([
+            'foto_bukti_cleanup' => $fotoBinary,
+            'foto_bukti_cleanup_mime' => $mimeType,
+            'cleanup_submitted_at' => now(),
+            'stage' => 'completed',
+            'status' => 'submitted',
+            'submitted_at' => now(),
+        ]);
+
+        // Notifikasi ke Supervisor
+        NotificationService::send(
+            $task->created_by,
+            'ADHOC_TASK_CLEANUP_SUBMITTED',
+            "Perapihan Selesai: {$task->judul}",
+            "CS {$user->full_name} telah selesai merapikan ruangan pasca-meeting untuk tugas: {$task->judul}.",
+            [
+                'adhoc_task_id' => $task->id,
+                'cs_name' => $user->full_name,
+                'judul' => $task->judul,
+            ],
+            'both'
+        );
+
+        AuditLogService::log('SUBMIT_CLEANUP_ADHOC_TASK', 'adhoc_tasks', $task->id, $oldData, $task->toArray());
+
+        return $this->success(
+            new AdhocTaskResource($task->load(['creator', 'cs', 'room.building'])),
+            'Laporan perapihan ruangan pasca-meeting berhasil dikirim ke Supervisor untuk verifikasi akhir.'
         );
     }
 
@@ -350,7 +471,7 @@ class AdhocTaskController extends Controller
         ]);
 
         // Notifikasi ke CS
-        $statusLabel = $newStatus === 'verified' ? 'Disetujui / Ruangan Siap' : 'Ditolak / Perlu Perbaikan';
+        $statusLabel = $newStatus === 'verified' ? 'Disetujui / Selesai Tuntas' : 'Ditolak / Perlu Perbaikan';
         NotificationService::send(
             $task->cs_user_id,
             'ADHOC_TASK_VERIFIED',
@@ -374,10 +495,18 @@ class AdhocTaskController extends Controller
      */
     public function streamFotoBukti($id)
     {
+        return $this->streamFotoPersiapan($id);
+    }
+
+    /**
+     * GET /adhoc-tasks/{id}/foto-persiapan (Foto 1)
+     */
+    public function streamFotoPersiapan($id)
+    {
         $task = AdhocTask::findOrFail($id);
 
         if (!$task->foto_bukti) {
-            return $this->error('Foto bukti tugas tidak ditemukan.', [], 404);
+            return $this->error('Foto bukti persiapan tidak ditemukan.', [], 404);
         }
 
         $mimeType = $task->foto_bukti_mime ?? 'image/jpeg';
@@ -387,7 +516,29 @@ class AdhocTaskController extends Controller
         }, 200, [
             'Content-Type' => $mimeType,
             'Cache-Control' => 'no-cache, private',
-            'Content-Disposition' => 'inline; filename="adhoc_' . $task->id . '.jpg"',
+            'Content-Disposition' => 'inline; filename="adhoc_setup_' . $task->id . '.jpg"',
+        ]);
+    }
+
+    /**
+     * GET /adhoc-tasks/{id}/foto-cleanup (Foto 2)
+     */
+    public function streamFotoCleanup($id)
+    {
+        $task = AdhocTask::findOrFail($id);
+
+        if (!$task->foto_bukti_cleanup) {
+            return $this->error('Foto bukti perapihan pasca-acara tidak ditemukan.', [], 404);
+        }
+
+        $mimeType = $task->foto_bukti_cleanup_mime ?? 'image/jpeg';
+
+        return response()->stream(function () use ($task) {
+            echo $task->foto_bukti_cleanup;
+        }, 200, [
+            'Content-Type' => $mimeType,
+            'Cache-Control' => 'no-cache, private',
+            'Content-Disposition' => 'inline; filename="adhoc_cleanup_' . $task->id . '.jpg"',
         ]);
     }
 }

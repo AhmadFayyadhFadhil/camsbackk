@@ -22,28 +22,38 @@ class AdhocTask extends Model
         'deskripsi',
         'priority', // low, medium, high
         'task_type', // immediate, scheduled_event
+        'requires_cleanup',
         'due_datetime',
         'event_start_time',
         'checklist_items',
         'status', // pending, in_progress, submitted, verified, rejected
+        'stage', // pending, setup_in_progress, setup_submitted, cleanup_in_progress, completed
         'foto_bukti',
         'foto_bukti_mime',
+        'foto_bukti_cleanup',
+        'foto_bukti_cleanup_mime',
         'verification_notes',
         'started_at',
         'submitted_at',
+        'setup_submitted_at',
+        'cleanup_submitted_at',
         'verified_at',
     ];
 
     protected $hidden = [
         'foto_bukti',
+        'foto_bukti_cleanup',
     ];
 
     protected $casts = [
+        'requires_cleanup' => 'boolean',
         'due_datetime' => 'datetime',
         'event_start_time' => 'datetime',
         'checklist_items' => 'array',
         'started_at' => 'datetime',
         'submitted_at' => 'datetime',
+        'setup_submitted_at' => 'datetime',
+        'cleanup_submitted_at' => 'datetime',
         'verified_at' => 'datetime',
     ];
 
