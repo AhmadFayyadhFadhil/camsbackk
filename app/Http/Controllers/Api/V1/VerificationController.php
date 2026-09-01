@@ -83,7 +83,7 @@ class VerificationController extends Controller
         $request->validate([
             'notes' => ['nullable', 'string'],
             'room_qr_code' => ['nullable', 'string'],
-            'foto_inspeksi' => ['nullable', 'image', 'max:10240'],
+            'foto_inspeksi' => ['required', 'image', 'max:10240'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'qr_scanned_at' => ['nullable', 'date'],
@@ -91,6 +91,8 @@ class VerificationController extends Controller
             'sla_ratings' => ['nullable', 'array'],
             'sla_ratings.*.sla_parameter_id' => ['required_with:sla_ratings', 'uuid', 'exists:sla_parameters,id'],
             'sla_ratings.*.nilai' => ['required_with:sla_ratings', 'string'],
+        ], [
+            'foto_inspeksi.required' => 'Foto bukti inspeksi fisik ruangan wajib dilampirkan sebelum menyetujui laporan.',
         ]);
 
         // Verifikasi kesesuaian QR Ruangan jika dikirim (Mendukung format JSON dan String biasa)
