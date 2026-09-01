@@ -119,7 +119,7 @@ class TaskController extends Controller
                 'schedule:id,room_id,checklist_item_id,shift_id,target_jam_mulai,target_jam_selesai',
                 'schedule.checklistItem:id,nama_item',
                 'cs:id,full_name,username',
-                'room:id,nama_ruangan,kode_ruangan,building_id',
+                'room:id,nama_ruangan,kode_ruangan,building_id,qr_code_token,latitude,longitude,radius_meter',
                 'room.building:id,nama_gedung,kode_gedung',
                 'shift'
             ])
