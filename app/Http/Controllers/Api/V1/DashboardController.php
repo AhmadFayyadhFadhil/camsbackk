@@ -377,9 +377,23 @@ class DashboardController extends Controller
             'minutes_left' => round($now->diffInMinutes($t->due_datetime)),
         ]);
 
+        // 5. Data Gedung Penugasan CS beserta koordinat dan radius Geofence
+        $assignedBuildings = Building::whereIn('id', $buildingIds)
+            ->where('is_active', true)
+            ->get()
+            ->map(fn($b) => [
+                'id' => $b->id,
+                'name' => $b->nama_gedung,
+                'code' => $b->kode_gedung,
+                'latitude' => $b->latitude !== null ? (float)$b->latitude : null,
+                'longitude' => $b->longitude !== null ? (float)$b->longitude : null,
+                'radius_meter' => (int)($b->radius_meter ?? 250),
+            ]);
+
         return $this->success([
             'tasks_summary' => $summary,
             'urgent_tasks' => $urgentTasks,
+            'assigned_buildings' => $assignedBuildings,
         ], 'Data dashboard CS berhasil diambil.');
     }
 
