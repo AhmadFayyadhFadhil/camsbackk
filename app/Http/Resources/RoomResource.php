@@ -25,6 +25,10 @@ class RoomResource extends JsonResource
                 'nama_template' => $this->template->nama_template,
             ] : null,
             'is_active' => (bool)$this->is_active,
+            'latitude' => $this->latitude !== null ? (float)$this->latitude : null,
+            'longitude' => $this->longitude !== null ? (float)$this->longitude : null,
+            'radius_meter' => $this->radius_meter !== null ? (int)$this->radius_meter : null,
+            'effective_geofence' => $this->getEffectiveGeofence(),
             
             // Asset Audit Scheduling
             'asset_audit_interval' => $this->asset_audit_interval ?? 'bimonthly',

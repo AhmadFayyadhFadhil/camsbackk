@@ -53,6 +53,9 @@ class RoomRequest extends FormRequest
             'lantai' => ['nullable', 'string', 'max:10'],
             'pic_user_id' => ['nullable', 'uuid', 'exists:users,id'],
             'checklist_template_id' => ['nullable', 'uuid', 'exists:checklist_templates,id'],
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+            'radius_meter' => ['nullable', 'integer', 'min:5', 'max:5000'],
         ];
     }
 

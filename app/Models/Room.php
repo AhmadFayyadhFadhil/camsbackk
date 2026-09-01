@@ -25,6 +25,9 @@ class Room extends Model
         'qr_code_token',
         'qr_code_image',
         'is_active',
+        'latitude',
+        'longitude',
+        'radius_meter',
         'asset_audit_interval',
         'asset_audit_interval_days',
         'last_asset_audit_at',
@@ -37,10 +40,48 @@ class Room extends Model
 
     protected $casts = [
         'is_active' => 'boolean',
+        'latitude' => 'float',
+        'longitude' => 'float',
+        'radius_meter' => 'integer',
         'asset_audit_interval_days' => 'integer',
         'last_asset_audit_at' => 'datetime',
         'next_asset_audit_due' => 'date',
     ];
+
+    /**
+     * Mendapatkan koordinat efektif (jika ruangan memiliki koordinat sendiri, gunakan ruangan; jika tidak, inherit dari gedung).
+     */
+    public function getEffectiveGeofence(): array
+    {
+        if ($this->latitude !== null && $this->longitude !== null) {
+            return [
+                'type' => 'room',
+                'target_name' => $this->nama_ruangan,
+                'latitude' => (float)$this->latitude,
+                'longitude' => (float)$this->longitude,
+                'radius_meter' => (int)($this->radius_meter ?: 30),
+            ];
+        }
+
+        $building = $this->building;
+        if ($building && $building->latitude !== null && $building->longitude !== null) {
+            return [
+                'type' => 'building',
+                'target_name' => $building->nama_gedung,
+                'latitude' => (float)$building->latitude,
+                'longitude' => (float)$building->longitude,
+                'radius_meter' => (int)($building->radius_meter ?: 250),
+            ];
+        }
+
+        return [
+            'type' => 'none',
+            'target_name' => null,
+            'latitude' => null,
+            'longitude' => null,
+            'radius_meter' => 250,
+        ];
+    }
 
     public function building(): BelongsTo
     {

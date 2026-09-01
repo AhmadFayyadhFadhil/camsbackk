@@ -71,20 +71,22 @@ class SubmissionController extends Controller
             return $this->error('Ruangan tidak ditemukan atau token QR tidak valid.', [], 404);
         }
 
-        // Validasi GPS Geofencing Kawasan Gedung (jika koordinat dikirim dan gedung memiliki titik lokasi)
-        $building = $room->building;
-        if ($building && $building->latitude !== null && $building->longitude !== null && $request->filled('latitude') && $request->filled('longitude')) {
+        // Validasi GPS Geofencing Berjenjang (Ruangan atau Kawasan Gedung)
+        $geofence = $room->getEffectiveGeofence();
+        if ($geofence['type'] !== 'none' && $request->filled('latitude') && $request->filled('longitude')) {
             $distance = \App\Helpers\GeoHelper::haversineDistance(
                 (float)$request->latitude,
                 (float)$request->longitude,
-                (float)$building->latitude,
-                (float)$building->longitude
+                $geofence['latitude'],
+                $geofence['longitude']
             );
-            $maxRadius = (int)($building->radius_meter ?: 250);
+            $maxRadius = $geofence['radius_meter'];
             if ($distance > $maxRadius) {
-                return $this->error("Posisi GPS Anda terdeteksi di luar area kawasan {$building->nama_gedung} (Jarak terdeteksi: " . round($distance) . " meter, batas radius: {$maxRadius} meter). Pastikan Anda berada di lokasi.", [
+                $targetLabel = $geofence['type'] === 'room' ? "ruangan {$geofence['target_name']}" : "kawasan {$geofence['target_name']}";
+                return $this->error("Posisi GPS Anda terdeteksi di luar area {$targetLabel} (Jarak terdeteksi: " . round($distance) . " meter, batas radius: {$maxRadius} meter). Pastikan Anda berada di lokasi.", [
                     'distance' => round($distance),
-                    'max_radius' => $maxRadius
+                    'max_radius' => $maxRadius,
+                    'geofence_type' => $geofence['type'],
                 ], 422);
             }
         }

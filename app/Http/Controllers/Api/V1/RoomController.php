@@ -85,6 +85,9 @@ class RoomController extends Controller
                 'lantai' => $data['lantai'] ?? null,
                 'pic_user_id' => $data['pic_user_id'] ?? null,
                 'checklist_template_id' => $data['checklist_template_id'] ?? null,
+                'latitude' => isset($data['latitude']) && $data['latitude'] !== '' ? $data['latitude'] : null,
+                'longitude' => isset($data['longitude']) && $data['longitude'] !== '' ? $data['longitude'] : null,
+                'radius_meter' => isset($data['radius_meter']) && $data['radius_meter'] !== '' ? (int)$data['radius_meter'] : null,
                 'qr_code_token' => $token,
                 'qr_code_image' => $qrBinary,
                 'is_active' => true,
@@ -140,6 +143,9 @@ class RoomController extends Controller
                 'nama_ruangan' => $data['nama_ruangan'],
                 'lantai' => $data['lantai'] ?? null,
                 'checklist_template_id' => $data['checklist_template_id'] ?? null,
+                'latitude' => array_key_exists('latitude', $data) ? ($data['latitude'] !== '' && $data['latitude'] !== null ? $data['latitude'] : null) : $room->latitude,
+                'longitude' => array_key_exists('longitude', $data) ? ($data['longitude'] !== '' && $data['longitude'] !== null ? $data['longitude'] : null) : $room->longitude,
+                'radius_meter' => array_key_exists('radius_meter', $data) ? ($data['radius_meter'] !== '' && $data['radius_meter'] !== null ? (int)$data['radius_meter'] : null) : $room->radius_meter,
             ]);
 
             // Tangani pergantian PIC
