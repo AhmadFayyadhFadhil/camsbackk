@@ -20,11 +20,18 @@ class Verification extends Model
         'role_verifier',
         'status',
         'catatan_perbaikan',
+        'foto_inspeksi_path',
+        'qr_scanned_at',
+        'latitude',
+        'longitude',
+        'is_onsite_verified',
         'verified_at',
     ];
 
     protected $casts = [
         'verified_at' => 'datetime',
+        'qr_scanned_at' => 'datetime',
+        'is_onsite_verified' => 'boolean',
     ];
 
     public function submission(): BelongsTo

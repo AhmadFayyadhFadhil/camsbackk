@@ -182,6 +182,7 @@ Route::prefix('v1')->group(function () {
         Route::get('verifications/pending', [VerificationController::class, 'pending']);
         Route::post('verifications/{submissionId}/approve', [VerificationController::class, 'approve']);
         Route::post('verifications/{submissionId}/reject', [VerificationController::class, 'reject']);
+        Route::get('verifications/{id}/foto-inspeksi', [VerificationController::class, 'streamFotoInspeksi']);
 
         // Modul Temuan Masalah (Findings)
         Route::get('finding-categories', [FindingCategoryController::class, 'index']);

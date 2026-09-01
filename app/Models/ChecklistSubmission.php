@@ -80,6 +80,11 @@ class ChecklistSubmission extends Model
         return $this->hasMany(Verification::class, 'submission_id');
     }
 
+    public function latestVerification(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Verification::class, 'submission_id')->latestOfMany();
+    }
+
     public function materials(): BelongsToMany
     {
         return $this->belongsToMany(

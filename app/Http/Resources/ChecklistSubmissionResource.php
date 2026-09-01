@@ -53,6 +53,16 @@ class ChecklistSubmissionResource extends JsonResource
             'longitude' => $this->longitude,
             'gps_accuracy' => $this->gps_accuracy,
             'gps_captured_at' => $this->gps_captured_at?->toIso8601String(),
+            'verification' => ($this->latestVerification ?? ($this->relationLoaded('verifications') ? $this->verifications->last() : null)) ? [
+                'id' => ($this->latestVerification ?? $this->verifications->last())->id,
+                'status' => ($this->latestVerification ?? $this->verifications->last())->status,
+                'catatan_perbaikan' => ($this->latestVerification ?? $this->verifications->last())->catatan_perbaikan,
+                'verified_by_name' => ($this->latestVerification ?? $this->verifications->last())->verifier?->full_name,
+                'verified_at' => ($this->latestVerification ?? $this->verifications->last())->verified_at?->toIso8601String(),
+                'is_onsite_verified' => ($this->latestVerification ?? $this->verifications->last())->is_onsite_verified,
+                'qr_scanned_at' => ($this->latestVerification ?? $this->verifications->last())->qr_scanned_at?->toIso8601String(),
+                'foto_inspeksi_url' => ($this->latestVerification ?? $this->verifications->last())->foto_inspeksi_path ? url("/api/v1/verifications/" . ($this->latestVerification ?? $this->verifications->last())->id . "/foto-inspeksi") : null,
+            ] : null,
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];

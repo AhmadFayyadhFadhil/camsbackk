@@ -14,7 +14,9 @@ use App\Services\AuditLogService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Carbon\Carbon;
 
 class VerificationController extends Controller
 {
@@ -34,7 +36,7 @@ class VerificationController extends Controller
         }
 
         $query = ChecklistSubmission::query()
-            ->with(['task.room.building', 'cs', 'results.checklistItem'])
+            ->with(['task.room.building', 'cs', 'results.checklistItem', 'latestVerification'])
             ->where('status', SubmissionStatusEnum::SUBMITTED);
 
         // Jika PIC, filter berdasarkan area tanggung jawab PIC tersebut
@@ -65,11 +67,11 @@ class VerificationController extends Controller
     }
 
     /**
-     * Setujui (Approve) laporan kebersihan.
+     * Setujui (Approve) laporan kebersihan dengan verifikasi fisik langsung di lokasi.
      */
     public function approve(Request $request, $submissionId)
     {
-        $submission = ChecklistSubmission::findOrFail($submissionId);
+        $submission = ChecklistSubmission::with(['task.room.building', 'cs'])->findOrFail($submissionId);
 
         // Validasi hak akses PIC / Supervisor / Admin
         Gate::authorize('create', [Verification::class, $submission]);
@@ -80,23 +82,49 @@ class VerificationController extends Controller
 
         $request->validate([
             'notes' => ['nullable', 'string'],
+            'room_qr_code' => ['nullable', 'string'],
+            'foto_inspeksi' => ['nullable', 'image', 'max:10240'],
+            'latitude' => ['nullable', 'numeric'],
+            'longitude' => ['nullable', 'numeric'],
+            'qr_scanned_at' => ['nullable', 'date'],
+            'is_onsite_verified' => ['nullable', 'boolean'],
             'sla_ratings' => ['nullable', 'array'],
             'sla_ratings.*.sla_parameter_id' => ['required_with:sla_ratings', 'uuid', 'exists:sla_parameters,id'],
             'sla_ratings.*.nilai' => ['required_with:sla_ratings', 'string'],
         ]);
 
+        // Verifikasi kesesuaian QR Ruangan jika dikirim
+        $expectedRoom = $submission->task?->room;
+        if ($request->filled('room_qr_code') && $expectedRoom) {
+            $scannedQr = trim($request->room_qr_code);
+            $isValid = ($scannedQr === $expectedRoom->kode_ruangan || $scannedQr === $expectedRoom->id);
+            if (!$isValid) {
+                return $this->error("QR Code tidak cocok dengan ruangan laporan ({$expectedRoom->nama_ruangan}). Pastikan Anda berada di ruangan yang benar.", [], 422);
+            }
+        }
+
         return DB::transaction(function () use ($request, $submission) {
             $user = $request->user();
             $roleVerifier = $user->hasRole(\App\Enums\RoleEnum::PIC) ? 'pic' : 'supervisor';
 
-            // 1. Simpan Verifikasi
+            $fotoInspeksiPath = null;
+            if ($request->hasFile('foto_inspeksi')) {
+                $fotoInspeksiPath = $request->file('foto_inspeksi')->store('inspections', 'public');
+            }
+
+            // 1. Simpan Verifikasi dengan data bukti fisik on-site
             $verification = Verification::create([
                 'id' => (string) Str::uuid(),
                 'submission_id' => $submission->id,
                 'verified_by' => $user->id,
                 'role_verifier' => $roleVerifier,
                 'status' => 'approved',
-                'catatan_perbaikan' => $request->notes ?? 'Laporan disetujui.',
+                'catatan_perbaikan' => $request->notes ?? 'Laporan disetujui setelah cek fisik di lokasi.',
+                'foto_inspeksi_path' => $fotoInspeksiPath,
+                'qr_scanned_at' => $request->filled('qr_scanned_at') ? Carbon::parse($request->qr_scanned_at) : now(),
+                'latitude' => $request->latitude,
+                'longitude' => $request->longitude,
+                'is_onsite_verified' => $request->boolean('is_onsite_verified', true),
                 'verified_at' => now(),
             ]);
 
@@ -279,5 +307,23 @@ class VerificationController extends Controller
                 'Laporan kebersihan ditolak. Catatan perbaikan telah dikirim ke CS.'
             );
         });
+    }
+
+    /**
+     * GET /verifications/{id}/foto-inspeksi
+     * Stream foto fisik hasil inspeksi supervisor
+     */
+    public function streamFotoInspeksi($id)
+    {
+        $verification = Verification::findOrFail($id);
+
+        if (!$verification->foto_inspeksi_path || !Storage::disk('public')->exists($verification->foto_inspeksi_path)) {
+            return response()->json(['message' => 'Foto bukti inspeksi tidak ditemukan.'], 404);
+        }
+
+        $file = Storage::disk('public')->get($verification->foto_inspeksi_path);
+        $mime = Storage::disk('public')->mimeType($verification->foto_inspeksi_path) ?: 'image/jpeg';
+
+        return response($file, 200)->header('Content-Type', $mime);
     }
 }
