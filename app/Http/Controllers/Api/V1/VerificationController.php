@@ -93,11 +93,22 @@ class VerificationController extends Controller
             'sla_ratings.*.nilai' => ['required_with:sla_ratings', 'string'],
         ]);
 
-        // Verifikasi kesesuaian QR Ruangan jika dikirim
+        // Verifikasi kesesuaian QR Ruangan jika dikirim (Mendukung format JSON dan String biasa)
         $expectedRoom = $submission->task?->room;
         if ($request->filled('room_qr_code') && $expectedRoom) {
             $scannedQr = trim($request->room_qr_code);
-            $isValid = ($scannedQr === $expectedRoom->kode_ruangan || $scannedQr === $expectedRoom->id);
+            $parsedQr = json_decode($scannedQr, true);
+            $scannedRoomId = is_array($parsedQr) ? ($parsedQr['room_id'] ?? null) : null;
+            $scannedToken = is_array($parsedQr) ? ($parsedQr['token'] ?? null) : null;
+
+            $isValid = (
+                $scannedQr === $expectedRoom->kode_ruangan ||
+                $scannedQr === $expectedRoom->id ||
+                $scannedQr === $expectedRoom->qr_code_token ||
+                ($scannedRoomId && ($scannedRoomId === $expectedRoom->id || $scannedRoomId === $expectedRoom->kode_ruangan)) ||
+                ($scannedToken && $scannedToken === $expectedRoom->qr_code_token)
+            );
+
             if (!$isValid) {
                 return $this->error("QR Code tidak cocok dengan ruangan laporan ({$expectedRoom->nama_ruangan}). Pastikan Anda berada di ruangan yang benar.", [], 422);
             }
