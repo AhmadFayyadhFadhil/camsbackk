@@ -66,11 +66,14 @@ class DashboardController extends Controller
                     'b.id as building_id',
                     'b.nama_gedung as building_name',
                     'b.kode_gedung as building_code',
+                    'b.latitude',
+                    'b.longitude',
+                    'b.radius_meter',
                     DB::raw('COUNT(DISTINCT r.id) as total_rooms'),
                     DB::raw('COUNT(t.id) as total_tasks'),
                     DB::raw('SUM(CASE WHEN t.status = "completed" THEN 1 ELSE 0 END) as completed_tasks')
                 )
-                ->groupBy('b.id', 'b.nama_gedung', 'b.kode_gedung')
+                ->groupBy('b.id', 'b.nama_gedung', 'b.kode_gedung', 'b.latitude', 'b.longitude', 'b.radius_meter')
                 ->orderBy('b.nama_gedung')
                 ->get();
 
@@ -83,6 +86,9 @@ class DashboardController extends Controller
                     'building_id' => $b->building_id,
                     'building_name' => $b->building_name,
                     'building_code' => $b->building_code,
+                    'latitude' => $b->latitude !== null ? (float)$b->latitude : null,
+                    'longitude' => $b->longitude !== null ? (float)$b->longitude : null,
+                    'radius_meter' => (int)($b->radius_meter ?? 250),
                     'total_rooms' => (int) $b->total_rooms,
                     'total_tasks' => $totalTasks,
                     'completed_tasks' => $completed,
@@ -114,6 +120,36 @@ class DashboardController extends Controller
                     'task_date' => $t->tanggal_task instanceof Carbon ? $t->tanggal_task->toDateString() : (string) $t->tanggal_task,
                 ]);
 
+            // 7. Jejak Inspeksi Fisik Hari Ini (Real Inspection Trail dari Database)
+            $inspectionTrail = ChecklistSubmission::whereHas('task', function($q) use ($dateFrom, $dateTo) {
+                    $q->whereBetween('tanggal_task', [$dateFrom, $dateTo]);
+                })
+                ->whereIn('status', [SubmissionStatusEnum::SUBMITTED, SubmissionStatusEnum::APPROVED])
+                ->with(['task.room.building', 'cs:id,full_name,username', 'latestVerification'])
+                ->orderBy('submitted_at', 'desc')
+                ->take(20)
+                ->get()
+                ->map(function($sub) {
+                    $room = $sub->task?->room;
+                    $building = $room?->building;
+                    $subTime = $sub->submitted_at ? $sub->submitted_at->setTimezone(new \DateTimeZone(config('app.timezone', 'Asia/Jakarta')))->format('H:i') . ' WIB' : '-';
+                    return [
+                        'id' => $sub->id,
+                        'room_id' => $room?->id,
+                        'room_name' => $room?->nama_ruangan,
+                        'room_code' => $room?->kode_ruangan,
+                        'building_id' => $building?->id,
+                        'building_name' => $building?->nama_gedung,
+                        'building_lat' => $building?->latitude !== null ? (float)$building->latitude : null,
+                        'building_lng' => $building?->longitude !== null ? (float)$building->longitude : null,
+                        'building_radius' => (int)($building?->radius_meter ?? 250),
+                        'cs_name' => $sub->cs?->full_name ?? 'Petugas CS',
+                        'time' => $subTime,
+                        'status' => $sub->status === SubmissionStatusEnum::APPROVED ? 'Terverifikasi On-Site' : 'Menunggu Verifikasi',
+                        'is_approved' => $sub->status === SubmissionStatusEnum::APPROVED,
+                    ];
+                });
+
             return [
                 'total_buildings' => $totalBuildings,
                 'total_rooms' => $totalRooms,
@@ -124,6 +160,7 @@ class DashboardController extends Controller
                 'pending_verifications' => $pendingVerificationsCount,
                 'active_findings' => $activeFindingsCount,
                 'overdue_tasks' => $recentOverdueTasks,
+                'inspection_trail' => $inspectionTrail,
             ];
         });
 
