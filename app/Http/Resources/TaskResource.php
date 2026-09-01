@@ -34,6 +34,7 @@ class TaskResource extends JsonResource
                 'id' => $this->room->id,
                 'name' => $this->room->nama_ruangan,
                 'code' => $this->room->kode_ruangan,
+                'qr_code_token' => $this->room->qr_code_token,
                 'building' => $this->room->building ? [
                     'id' => $this->room->building->id,
                     'name' => $this->room->building->nama_gedung,
