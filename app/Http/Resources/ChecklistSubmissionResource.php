@@ -20,7 +20,7 @@ class ChecklistSubmissionResource extends JsonResource
                 'name' => $this->cs->full_name,
             ] : null,
             'submitted_at' => $this->submitted_at?->toIso8601String(),
-            'submission_time' => $this->submitted_at?->toDateTimeString(),
+            'submission_time' => $this->submitted_at ? $this->submitted_at->setTimezone(new \DateTimeZone(config('app.timezone', 'Asia/Jakarta')))->format('Y-m-d H:i') . ' WIB' : null,
             'resubmit_count' => (int)$this->resubmit_count,
             'scan_token_used' => $this->scan_token_used,
             'catatan_cs' => $this->catatan_cs,
