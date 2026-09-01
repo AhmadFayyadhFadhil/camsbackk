@@ -55,7 +55,7 @@ class RoomRequest extends FormRequest
             'checklist_template_id' => ['nullable', 'uuid', 'exists:checklist_templates,id'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
-            'radius_meter' => ['nullable', 'integer', 'min:5', 'max:5000'],
+            'radius_meter' => ['nullable', 'integer', 'min:1', 'max:5000'],
         ];
     }
 

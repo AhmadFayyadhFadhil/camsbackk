@@ -27,7 +27,7 @@ class BuildingRequest extends FormRequest
             'description' => ['nullable', 'string'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
-            'radius_meter' => ['nullable', 'integer', 'min:10', 'max:10000'],
+            'radius_meter' => ['nullable', 'integer', 'min:1', 'max:10000'],
         ];
     }
 
