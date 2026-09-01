@@ -35,6 +35,8 @@ class SubmissionController extends Controller
             'room_id' => ['nullable', 'uuid'],
             'qr_code_token' => ['nullable', 'string'],
             'task_id' => ['nullable', 'uuid'],
+            'latitude' => ['nullable', 'numeric'],
+            'longitude' => ['nullable', 'numeric'],
         ]);
 
         $user = $request->user();
@@ -67,6 +69,24 @@ class SubmissionController extends Controller
 
         if (!$room) {
             return $this->error('Ruangan tidak ditemukan atau token QR tidak valid.', [], 404);
+        }
+
+        // Validasi GPS Geofencing Kawasan Gedung (jika koordinat dikirim dan gedung memiliki titik lokasi)
+        $building = $room->building;
+        if ($building && $building->latitude !== null && $building->longitude !== null && $request->filled('latitude') && $request->filled('longitude')) {
+            $distance = \App\Helpers\GeoHelper::haversineDistance(
+                (float)$request->latitude,
+                (float)$request->longitude,
+                (float)$building->latitude,
+                (float)$building->longitude
+            );
+            $maxRadius = (int)($building->radius_meter ?: 250);
+            if ($distance > $maxRadius) {
+                return $this->error("Posisi GPS Anda terdeteksi di luar area kawasan {$building->nama_gedung} (Jarak terdeteksi: " . round($distance) . " meter, batas radius: {$maxRadius} meter). Pastikan Anda berada di lokasi.", [
+                    'distance' => round($distance),
+                    'max_radius' => $maxRadius
+                ], 422);
+            }
         }
 
         // 1. Validasi CS ditugaskan di gedung ini hari ini

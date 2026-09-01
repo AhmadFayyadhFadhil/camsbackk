@@ -25,6 +25,9 @@ class BuildingRequest extends FormRequest
             'name' => ['required_without:nama_gedung', 'string', 'max:255'],
             'alamat' => ['nullable', 'string'],
             'description' => ['nullable', 'string'],
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+            'radius_meter' => ['nullable', 'integer', 'min:10', 'max:10000'],
         ];
     }
 

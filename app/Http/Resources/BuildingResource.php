@@ -19,6 +19,7 @@ class BuildingResource extends JsonResource
             'description' => $this->alamat,
             'latitude' => $this->latitude !== null ? (float)$this->latitude : null,
             'longitude' => $this->longitude !== null ? (float)$this->longitude : null,
+            'radius_meter' => (int)($this->radius_meter ?? 250),
             'is_active' => (bool)$this->is_active,
             'asset_audit_interval' => $this->asset_audit_interval ?? 'bimonthly',
             'asset_audit_interval_days' => (int)($this->asset_audit_interval_days ?? 60),

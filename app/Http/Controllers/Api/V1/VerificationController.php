@@ -116,6 +116,24 @@ class VerificationController extends Controller
             }
         }
 
+        // Validasi GPS Geofencing Kawasan Gedung (jika koordinat dikirim dan gedung memiliki titik lokasi)
+        $building = $expectedRoom?->building;
+        if ($building && $building->latitude !== null && $building->longitude !== null && $request->filled('latitude') && $request->filled('longitude')) {
+            $distance = \App\Helpers\GeoHelper::haversineDistance(
+                (float)$request->latitude,
+                (float)$request->longitude,
+                (float)$building->latitude,
+                (float)$building->longitude
+            );
+            $maxRadius = (int)($building->radius_meter ?: 250);
+            if ($distance > $maxRadius) {
+                return $this->error("Posisi GPS Anda terdeteksi di luar area kawasan {$building->nama_gedung} (Jarak terdeteksi: " . round($distance) . " meter, batas radius: {$maxRadius} meter). Pastikan Anda berada di lokasi.", [
+                    'distance' => round($distance),
+                    'max_radius' => $maxRadius
+                ], 422);
+            }
+        }
+
         return DB::transaction(function () use ($request, $submission) {
             $user = $request->user();
             $roleVerifier = $user->hasRole(\App\Enums\RoleEnum::PIC) ? 'pic' : 'supervisor';
