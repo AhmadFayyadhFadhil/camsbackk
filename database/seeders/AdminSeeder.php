@@ -36,5 +36,29 @@ class AdminSeeder extends Seeder
             'user_id' => $adminUser->id,
             'role_id' => $adminRole->id,
         ]);
+
+        // Seed default guest / damage reporter account
+        $guestRole = Role::where('name', RoleEnum::GUEST->value)->first();
+        if (!$guestRole) {
+            $guestRole = Role::create([
+                'name' => RoleEnum::GUEST->value,
+                'description' => 'System role for Guest / Pelapor Kerusakan',
+            ]);
+        }
+
+        $guestUser = User::updateOrCreate(
+            ['email' => 'pelapor@cams.com'],
+            [
+                'username' => 'pelapor_fasilitas',
+                'full_name' => 'Pelapor Fasilitas (Karyawan / Tamu)',
+                'password' => Hash::make('Pass123', ['rounds' => 12]),
+                'is_active' => true,
+            ]
+        );
+
+        UserRole::firstOrCreate([
+            'user_id' => $guestUser->id,
+            'role_id' => $guestRole->id,
+        ]);
     }
 }
