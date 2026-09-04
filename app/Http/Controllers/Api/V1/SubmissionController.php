@@ -200,17 +200,25 @@ class SubmissionController extends Controller
                 }
             }
 
-            // Ambil seluruh checklist items yang aktif untuk jadwal-jadwal ruangan ini pada shift terkait
-            $scheduledItemIds = Schedule::where('room_id', $room->id)
-                ->where('is_active', true)
-                ->where(function($q) use ($tasks) {
-                    $shiftIds = $tasks->pluck('shift_id')->filter()->unique();
-                    if ($shiftIds->isNotEmpty()) {
-                        $q->whereIn('shift_id', $shiftIds);
-                    }
-                })
+            // Prioritaskan checklist items dari schedule yang benar-benar aktif untuk tasks hari ini
+            $taskScheduleIds = $tasks->pluck('schedule_id')->filter()->unique();
+            $scheduledItemIds = Schedule::whereIn('id', $taskScheduleIds)
                 ->pluck('checklist_item_id')
                 ->unique();
+
+            if ($scheduledItemIds->isEmpty()) {
+                // Fallback: Ambil seluruh checklist items yang aktif untuk jadwal-jadwal ruangan ini pada shift terkait
+                $scheduledItemIds = Schedule::where('room_id', $room->id)
+                    ->where('is_active', true)
+                    ->where(function($q) use ($tasks) {
+                        $shiftIds = $tasks->pluck('shift_id')->filter()->unique();
+                        if ($shiftIds->isNotEmpty()) {
+                            $q->whereIn('shift_id', $shiftIds);
+                        }
+                    })
+                    ->pluck('checklist_item_id')
+                    ->unique();
+            }
 
             $checklistItems = ChecklistItem::whereIn('id', $scheduledItemIds)
                 ->where('is_active', true)

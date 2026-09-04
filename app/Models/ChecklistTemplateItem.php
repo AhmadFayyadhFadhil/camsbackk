@@ -18,6 +18,14 @@ class ChecklistTemplateItem extends Model
         'checklist_template_id',
         'nama_item',
         'deskripsi',
+        'frekuensi',
+        'hari_minggu',
+        'tanggal_bulan',
+    ];
+
+    protected $casts = [
+        'hari_minggu' => 'integer',
+        'tanggal_bulan' => 'integer',
     ];
 
     public function template(): BelongsTo

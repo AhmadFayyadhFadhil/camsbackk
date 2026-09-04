@@ -88,6 +88,9 @@ class ScheduleController extends Controller
                     'id' => $i->id,
                     'nama_item' => $i->nama_item,
                     'deskripsi' => $i->deskripsi,
+                    'frekuensi' => $i->frekuensi ?? 'harian',
+                    'hari_minggu' => $i->hari_minggu,
+                    'tanggal_bulan' => $i->tanggal_bulan,
                 ])
             ]),
             'shifts' => ShiftResource::collection($shifts),
@@ -334,6 +337,11 @@ class ScheduleController extends Controller
 
             $appliedChecklistItemIds[] = $checklistItem->id;
 
+            // Prioritaskan frekuensi khusus dari item template jika diset, jika tidak gunakan frekuensi global
+            $itemFreq = !empty($tItem->frekuensi) ? $tItem->frekuensi : $frekuensi;
+            $itemHari = $itemFreq === FrequencyEnum::MINGGUAN->value ? ($tItem->hari_minggu ?? $request->hari_minggu) : null;
+            $itemTgl = $itemFreq === FrequencyEnum::BULANAN->value ? ($tItem->tanggal_bulan ?? $request->tanggal_bulan) : null;
+
             $existingSchedule = Schedule::where('room_id', $room->id)
                 ->where('checklist_item_id', $checklistItem->id)
                 ->where('shift_id', $request->shift_id)
@@ -341,9 +349,9 @@ class ScheduleController extends Controller
 
             if ($existingSchedule) {
                 $existingSchedule->update([
-                    'frekuensi' => $frekuensi,
-                    'hari_minggu' => $frekuensi === FrequencyEnum::MINGGUAN->value ? $request->hari_minggu : null,
-                    'tanggal_bulan' => $frekuensi === FrequencyEnum::BULANAN->value ? $request->tanggal_bulan : null,
+                    'frekuensi' => $itemFreq,
+                    'hari_minggu' => $itemHari,
+                    'tanggal_bulan' => $itemTgl,
                     'target_jam_mulai' => $request->target_jam_mulai ?: $existingSchedule->target_jam_mulai,
                     'target_jam_selesai' => $request->target_jam_selesai ?: $existingSchedule->target_jam_selesai,
                     'is_active' => true,
@@ -354,9 +362,9 @@ class ScheduleController extends Controller
                     'room_id' => $room->id,
                     'checklist_item_id' => $checklistItem->id,
                     'shift_id' => $request->shift_id,
-                    'frekuensi' => $frekuensi,
-                    'hari_minggu' => $frekuensi === FrequencyEnum::MINGGUAN->value ? $request->hari_minggu : null,
-                    'tanggal_bulan' => $frekuensi === FrequencyEnum::BULANAN->value ? $request->tanggal_bulan : null,
+                    'frekuensi' => $itemFreq,
+                    'hari_minggu' => $itemHari,
+                    'tanggal_bulan' => $itemTgl,
                     'target_jam_mulai' => $request->target_jam_mulai,
                     'target_jam_selesai' => $request->target_jam_selesai,
                     'is_active' => true,

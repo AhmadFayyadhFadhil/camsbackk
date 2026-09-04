@@ -28,6 +28,24 @@ class TaskResource extends JsonResource
             'due_datetime' => $this->due_datetime?->toIso8601String(),
             'items_count' => $this->items_count ?? 1,
             'item_names' => $this->checklist_item_names ?? ($this->schedule?->checklistItem ? [$this->schedule->checklistItem->nama_item] : []),
+            'frekuensi' => $this->schedule ? (is_object($this->schedule->frekuensi) ? $this->schedule->frekuensi->value : $this->schedule->frekuensi) : 'harian',
+            'frequency' => $this->schedule ? (is_object($this->schedule->frekuensi) ? $this->schedule->frekuensi->value : $this->schedule->frekuensi) : 'harian',
+            'hari_minggu' => $this->schedule?->hari_minggu,
+            'tanggal_bulan' => $this->schedule?->tanggal_bulan,
+            'day_of_week' => ($this->schedule && $this->schedule->hari_minggu !== null) ? [
+                0 => 'Minggu', 1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu',
+                4 => 'Kamis', 5 => 'Jumat', 6 => 'Sabtu'
+            ][$this->schedule->hari_minggu] : null,
+            'schedule' => $this->schedule ? [
+                'id' => $this->schedule->id,
+                'frekuensi' => is_object($this->schedule->frekuensi) ? $this->schedule->frekuensi->value : $this->schedule->frekuensi,
+                'hari_minggu' => $this->schedule->hari_minggu,
+                'tanggal_bulan' => $this->schedule->tanggal_bulan,
+                'checklist_item' => $this->schedule->checklistItem ? [
+                    'id' => $this->schedule->checklistItem->id,
+                    'nama_item' => $this->schedule->checklistItem->nama_item,
+                ] : null,
+            ] : null,
             
             // Nested structures expected by frontend (e.g. CsTasks.jsx, Verifications.jsx)
             'room' => $this->room ? [

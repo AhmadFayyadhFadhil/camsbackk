@@ -49,6 +49,9 @@ class ChecklistTemplateController extends Controller
             'items' => ['nullable', 'array'],
             'items.*.nama_item' => ['required_with:items', 'string', 'max:255'],
             'items.*.deskripsi' => ['nullable', 'string'],
+            'items.*.frekuensi' => ['nullable', 'in:harian,mingguan,bulanan'],
+            'items.*.hari_minggu' => ['nullable', 'integer', 'between:0,6'],
+            'items.*.tanggal_bulan' => ['nullable', 'integer', 'between:1,31'],
         ]);
 
         return DB::transaction(function () use ($request) {
@@ -65,6 +68,9 @@ class ChecklistTemplateController extends Controller
                         'checklist_template_id' => $template->id,
                         'nama_item' => $itemData['nama_item'],
                         'deskripsi' => $itemData['deskripsi'] ?? null,
+                        'frekuensi' => $itemData['frekuensi'] ?? 'harian',
+                        'hari_minggu' => isset($itemData['hari_minggu']) && $itemData['hari_minggu'] !== '' ? (int) $itemData['hari_minggu'] : null,
+                        'tanggal_bulan' => isset($itemData['tanggal_bulan']) && $itemData['tanggal_bulan'] !== '' ? (int) $itemData['tanggal_bulan'] : null,
                     ]);
                 }
             }
@@ -101,6 +107,9 @@ class ChecklistTemplateController extends Controller
             'items.*.id' => ['nullable', 'uuid'],
             'items.*.nama_item' => ['required_with:items', 'string', 'max:255'],
             'items.*.deskripsi' => ['nullable', 'string'],
+            'items.*.frekuensi' => ['nullable', 'in:harian,mingguan,bulanan'],
+            'items.*.hari_minggu' => ['nullable', 'integer', 'between:0,6'],
+            'items.*.tanggal_bulan' => ['nullable', 'integer', 'between:1,31'],
         ]);
 
         return DB::transaction(function () use ($request, $template, $oldData) {
@@ -112,6 +121,10 @@ class ChecklistTemplateController extends Controller
             if ($request->has('items') && is_array($request->items)) {
                 $keptItemIds = [];
                 foreach ($request->items as $itemData) {
+                    $itemFreq = $itemData['frekuensi'] ?? 'harian';
+                    $itemHari = isset($itemData['hari_minggu']) && $itemData['hari_minggu'] !== '' ? (int) $itemData['hari_minggu'] : null;
+                    $itemTgl = isset($itemData['tanggal_bulan']) && $itemData['tanggal_bulan'] !== '' ? (int) $itemData['tanggal_bulan'] : null;
+
                     if (!empty($itemData['id'])) {
                         $item = ChecklistTemplateItem::where('id', $itemData['id'])
                             ->where('checklist_template_id', $template->id)
@@ -120,6 +133,9 @@ class ChecklistTemplateController extends Controller
                             $item->update([
                                 'nama_item' => $itemData['nama_item'],
                                 'deskripsi' => $itemData['deskripsi'] ?? null,
+                                'frekuensi' => $itemFreq,
+                                'hari_minggu' => $itemHari,
+                                'tanggal_bulan' => $itemTgl,
                             ]);
                             $keptItemIds[] = $item->id;
                             continue;
@@ -131,6 +147,9 @@ class ChecklistTemplateController extends Controller
                         'checklist_template_id' => $template->id,
                         'nama_item' => $itemData['nama_item'],
                         'deskripsi' => $itemData['deskripsi'] ?? null,
+                        'frekuensi' => $itemFreq,
+                        'hari_minggu' => $itemHari,
+                        'tanggal_bulan' => $itemTgl,
                     ]);
                     $keptItemIds[] = $newItem->id;
                 }
