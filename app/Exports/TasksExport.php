@@ -23,7 +23,7 @@ class TasksExport implements FromCollection, WithHeadings, WithStyles, ShouldAut
      */
     public function collection()
     {
-        $query = Task::query()->with(['room.building', 'cs', 'shift', 'submission.verifications']);
+        $query = Task::query()->with(['room.building', 'cs', 'shift', 'schedule', 'submission.verifications']);
 
         if (!empty($this->filters['date_from'])) {
             $query->whereDate('tanggal_task', '>=', $this->filters['date_from']);
@@ -47,6 +47,18 @@ class TasksExport implements FromCollection, WithHeadings, WithStyles, ShouldAut
         return $query->get()->map(function ($task, $index) {
             $submission = $task->submission;
             $approvedVerification = $submission ? $submission->verifications->where('status', 'approved')->first() : null;
+            $freqEnum = $task->schedule?->frekuensi;
+            $freqVal = is_object($freqEnum) ? $freqEnum->value : ($freqEnum ?? 'harian');
+            $dayNames = [0 => 'Minggu', 1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu', 4 => 'Kamis', 5 => 'Jumat', 6 => 'Sabtu'];
+            if ($freqVal === 'mingguan') {
+                $hari = $task->schedule?->hari_minggu !== null ? ($dayNames[$task->schedule->hari_minggu] ?? 'Jumat') : '-';
+                $freqLabel = "Mingguan ({$hari})";
+            } elseif ($freqVal === 'bulanan') {
+                $tgl = $task->schedule?->tanggal_bulan ?? 1;
+                $freqLabel = "Bulanan (Tgl {$tgl})";
+            } else {
+                $freqLabel = "Harian";
+            }
 
             return [
                 'No' => $index + 1,
@@ -55,6 +67,7 @@ class TasksExport implements FromCollection, WithHeadings, WithStyles, ShouldAut
                 'Ruangan' => $task->room?->nama_ruangan ?? '-',
                 'Petugas CS' => $task->cs?->full_name ?? 'Belum Ditugaskan',
                 'Shift' => $task->shift?->nama_shift ?? '-',
+                'Frekuensi' => $freqLabel,
                 'Status' => strtoupper($task->status->value),
                 'Mulai' => $submission ? $submission->submitted_at->toDateTimeString() : '-',
                 'Selesai' => $approvedVerification ? $approvedVerification->verified_at->toDateTimeString() : '-',
@@ -74,6 +87,7 @@ class TasksExport implements FromCollection, WithHeadings, WithStyles, ShouldAut
             'Ruangan',
             'Petugas CS',
             'Shift',
+            'Frekuensi',
             'Status',
             'Waktu Mulai',
             'Waktu Selesai',

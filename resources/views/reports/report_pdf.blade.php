@@ -109,13 +109,14 @@
         <thead>
             <tr>
                 <th width="4%">No</th>
-                <th width="12%">Tanggal</th>
-                <th width="15%">Gedung</th>
-                <th width="20%">Ruangan</th>
-                <th width="15%">Petugas CS</th>
-                <th width="10%">Shift</th>
-                <th width="10%">Status</th>
-                <th width="14%">Pengerjaan</th>
+                <th width="11%">Tanggal</th>
+                <th width="14%">Gedung</th>
+                <th width="16%">Ruangan</th>
+                <th width="14%">Petugas CS</th>
+                <th width="9%">Shift</th>
+                <th width="12%">Frekuensi</th>
+                <th width="9%">Status</th>
+                <th width="11%">Pengerjaan</th>
             </tr>
         </thead>
         <tbody>
@@ -123,6 +124,18 @@
                 @php
                     $submission = $task->submission;
                     $approvedVerification = $submission ? $submission->verifications->where('status', 'approved')->first() : null;
+                    $freqEnum = $task->schedule?->frekuensi;
+                    $freqVal = is_object($freqEnum) ? $freqEnum->value : ($freqEnum ?? 'harian');
+                    $dayNames = [0 => 'Minggu', 1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu', 4 => 'Kamis', 5 => 'Jumat', 6 => 'Sabtu'];
+                    if ($freqVal === 'mingguan') {
+                        $hari = $task->schedule?->hari_minggu !== null ? ($dayNames[$task->schedule->hari_minggu] ?? 'Jumat') : '-';
+                        $freqLabel = "Mingguan ({$hari})";
+                    } elseif ($freqVal === 'bulanan') {
+                        $tgl = $task->schedule?->tanggal_bulan ?? 1;
+                        $freqLabel = "Bulanan (Tgl {$tgl})";
+                    } else {
+                        $freqLabel = "Harian";
+                    }
                 @endphp
                 <tr>
                     <td align="center">{{ $index + 1 }}</td>
@@ -131,6 +144,7 @@
                     <td>{{ $task->room?->nama_ruangan ?? '-' }}</td>
                     <td>{{ $task->cs?->full_name ?? 'Belum Ditugaskan' }}</td>
                     <td>{{ $task->shift?->nama_shift ?? '-' }}</td>
+                    <td>{{ $freqLabel }}</td>
                     <td align="center"><strong>{{ strtoupper($task->status->value) }}</strong></td>
                     <td>
                         Mulai: {{ $submission ? $submission->submitted_at->format('H:i') : '-' }}<br>
@@ -139,7 +153,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="8" align="center">Tidak ada data laporan yang sesuai dengan filter.</td>
+                    <td colspan="9" align="center">Tidak ada data laporan yang sesuai dengan filter.</td>
                 </tr>
             @endforelse
         </tbody>

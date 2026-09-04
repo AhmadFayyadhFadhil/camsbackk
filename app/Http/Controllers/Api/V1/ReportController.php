@@ -24,7 +24,7 @@ class ReportController extends Controller
     public function exportPdf(ExportReportRequest $request)
     {
         $filters = $request->validated();
-        $query = Task::query()->with(['room.building', 'cs', 'shift']);
+        $query = Task::query()->with(['room.building', 'cs', 'shift', 'schedule', 'submission.verifications']);
 
         if (!empty($filters['date_from'])) {
             $query->whereDate('tanggal_task', '>=', $filters['date_from']);
