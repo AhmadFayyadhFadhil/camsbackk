@@ -87,7 +87,7 @@ class FindingController extends Controller
 
         $categoryId = $request->finding_category_id;
         if (empty($categoryId)) {
-            $other = \App\Models\FindingCategory::where('kode_kategori', 'OTHER')->first();
+            $other = \App\Models\FindingCategory::where('kode_kategori', 'OTHER')->first() ?: \App\Models\FindingCategory::first();
             $categoryId = $other?->id;
         }
 
