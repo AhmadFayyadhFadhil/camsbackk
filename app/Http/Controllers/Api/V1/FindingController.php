@@ -85,17 +85,11 @@ class FindingController extends Controller
             'deadline_perbaikan'  => ['nullable', 'date'],
         ]);
 
-        $categoryId = $request->finding_category_id;
-        if (empty($categoryId)) {
-            $other = \App\Models\FindingCategory::where('kode_kategori', 'OTHER')->first() ?: \App\Models\FindingCategory::first();
-            $categoryId = $other?->id;
-        }
-
         $findingData = [
             'id'                  => (string) Str::uuid(),
             'room_id'             => $request->room_id,
             'room_asset_id'       => $request->room_asset_id,
-            'finding_category_id' => $categoryId,
+            'finding_category_id' => $request->finding_category_id,
             'reported_by'         => $request->user()->id,
             'deskripsi'           => $request->deskripsi,
             'prioritas'           => PriorityEnum::from($request->prioritas),
