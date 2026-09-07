@@ -89,15 +89,25 @@ class TaskController extends Controller
     public function myTasks(Request $request)
     {
         $user = $request->user();
-        if (!$user->hasRole(RoleEnum::CS)) {
-            return $this->error('Akses ditolak. Hanya Cleaning Service yang dapat melihat tugas mandiri.', [], 403);
-        }
 
         // Auto-generate daily tasks if none exist for today yet (useful for local development/first access)
         $today = today()->toDateString();
         if (!Task::where('tanggal_task', $today)->exists()) {
             $generator = new \App\Services\TaskGeneratorService();
             $generator->generateForDate(today());
+        }
+
+        // Admin & Supervisor dapat melihat seluruh tugas hari ini untuk keperluan monitoring
+        if ($user->hasRole(RoleEnum::ADMIN) || $user->hasRole(RoleEnum::SUPERVISOR)) {
+            $tasks = Task::with(['room.building', 'shift', 'schedule.checklistItem', 'cs'])
+                ->where('tanggal_task', $today)
+                ->orderBy('created_at', 'desc')
+                ->get();
+            return $this->success(TaskResource::collection($tasks), 'Daftar seluruh tugas kebersihan hari ini.');
+        }
+
+        if (!$user->hasRole(RoleEnum::CS)) {
+            return $this->error('Akses ditolak. Hanya Cleaning Service yang dapat melihat tugas mandiri.', [], 403);
         }
 
         // Dapatkan semua ID gedung tempat CS ditugaskan hari ini
