@@ -51,25 +51,47 @@ class SubmissionController extends Controller
 
         if ($task) {
             $room = $task->room;
-        } elseif ($request->room_id) {
-            if ($request->qr_code_token) {
-                $room = Room::where('id', $request->room_id)
-                    ->where('qr_code_token', $request->qr_code_token)
-                    ->first() ?: Room::find($request->room_id);
-            } else {
-                $room = Room::find($request->room_id);
-            }
-        } elseif ($request->qr_code_token) {
-            $room = Room::where('qr_code_token', $request->qr_code_token)->first();
         }
 
-        // Fallback pencarian ruangan
-        if (!$room && $request->room_id) {
-            $room = Room::find($request->room_id);
+        $rawToken = trim((string)$request->input('qr_code_token', ''));
+        $rawRoomId = trim((string)$request->input('room_id', ''));
+
+        // Jika token berupa JSON string (misal dikirim mentah dari scanner)
+        if (!empty($rawToken) && (str_starts_with($rawToken, '{') || str_contains($rawToken, 'token'))) {
+            try {
+                $decodedJson = json_decode($rawToken, true);
+                if (is_array($decodedJson)) {
+                    if (!empty($decodedJson['room_id'])) $rawRoomId = $decodedJson['room_id'];
+                    if (!empty($decodedJson['token'])) $rawToken = $decodedJson['token'];
+                }
+            } catch (\Throwable $e) {}
+        }
+
+        // 1. Cari berdasarkan token QR resmi
+        if (!$room && !empty($rawToken)) {
+            $room = Room::where('qr_code_token', $rawToken)->first();
+        }
+
+        // 2. Cari berdasarkan ID ruangan (UUID)
+        if (!$room && !empty($rawRoomId) && Str::isUuid($rawRoomId)) {
+            $room = Room::find($rawRoomId);
+        }
+
+        // 3. Cari berdasarkan Kode Ruangan (contoh: WDA1, RKIT, dsb)
+        if (!$room && !empty($rawToken)) {
+            $room = Room::whereRaw('LOWER(kode_ruangan) = ?', [strtolower($rawToken)])->first();
+        }
+        if (!$room && !empty($rawRoomId)) {
+            $room = Room::whereRaw('LOWER(kode_ruangan) = ?', [strtolower($rawRoomId)])->first();
+        }
+
+        // 4. Cari jika token yang discan adalah ID UUID ruangan
+        if (!$room && !empty($rawToken) && Str::isUuid($rawToken)) {
+            $room = Room::find($rawToken);
         }
 
         if (!$room) {
-            return $this->error('Ruangan tidak ditemukan atau token QR tidak valid.', [], 404);
+            return $this->error('Ruangan tidak ditemukan atau token QR tidak valid. Pastikan Anda memindai stiker QR resmi CAMS pada ruangan.', [], 404);
         }
 
         // Validasi GPS Geofencing Berjenjang (Ruangan atau Kawasan Gedung) dengan Toleransi Indoor Pintar
