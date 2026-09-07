@@ -37,6 +37,7 @@ class SubmissionController extends Controller
             'task_id' => ['nullable', 'uuid'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
+            'accuracy' => ['nullable', 'numeric'],
         ]);
 
         $user = $request->user();
@@ -71,7 +72,7 @@ class SubmissionController extends Controller
             return $this->error('Ruangan tidak ditemukan atau token QR tidak valid.', [], 404);
         }
 
-        // Validasi GPS Geofencing Berjenjang (Ruangan atau Kawasan Gedung)
+        // Validasi GPS Geofencing Berjenjang (Ruangan atau Kawasan Gedung) dengan Toleransi Indoor Pintar
         $geofence = $room->getEffectiveGeofence();
         if ($geofence['type'] !== 'none' && $request->filled('latitude') && $request->filled('longitude')) {
             $distance = \App\Helpers\GeoHelper::haversineDistance(
@@ -80,12 +81,20 @@ class SubmissionController extends Controller
                 $geofence['latitude'],
                 $geofence['longitude']
             );
-            $maxRadius = $geofence['radius_meter'];
-            if ($distance > $maxRadius) {
+            $baseRadius = (float) $geofence['radius_meter'];
+            $accuracy = (float) $request->input('accuracy', 0);
+            
+            // Toleransi indoor: sensor GPS HP di dalam ruangan sering mengalami deviasi/drift alami 10-25m.
+            // Minimum radius efektif per ruangan adalah 25m + buffer akurasi HP agar scan di depan pintu tidak terblokir salah.
+            $accuracyBuffer = max(0, min($accuracy * 0.85, 30));
+            $effectiveRadius = max($baseRadius, 25) + $accuracyBuffer;
+
+            if ($distance > $effectiveRadius) {
                 $targetLabel = $geofence['type'] === 'room' ? "ruangan {$geofence['target_name']}" : "kawasan {$geofence['target_name']}";
-                return $this->error("Posisi GPS Anda terdeteksi di luar area {$targetLabel} (Jarak terdeteksi: " . round($distance) . " meter, batas radius: {$maxRadius} meter). Pastikan Anda berada di lokasi.", [
+                return $this->error("Posisi GPS Anda terdeteksi di luar area {$targetLabel} (Jarak terdeteksi: " . round($distance) . " meter, batas radius: {$baseRadius} meter). Pastikan Anda berada di lokasi.", [
                     'distance' => round($distance),
-                    'max_radius' => $maxRadius,
+                    'max_radius' => $baseRadius,
+                    'effective_radius' => round($effectiveRadius),
                     'geofence_type' => $geofence['type'],
                 ], 422);
             }
