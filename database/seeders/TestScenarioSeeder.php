@@ -92,10 +92,23 @@ class TestScenarioSeeder extends Seeder
             'username' => 'cs_ani',
             'email' => 'ani@cams.com',
             'full_name' => 'Ani CS',
-            'password' => Hash::make('Password123!', ['rounds' => 12]),
+            'password' => Hash::make('password', ['rounds' => 12]),
             'is_active' => true,
         ]);
         UserRole::create(['user_id' => $csAni->id, 'role_id' => $csRole->id]);
+
+        $guestRole = Role::firstOrCreate(
+            ['name' => RoleEnum::GUEST->value],
+            ['description' => 'System role for Guest / Pelapor Kerusakan']
+        );
+        $pelapor = User::create([
+            'username' => 'pelapor_fasilitas',
+            'email' => 'pelapor@cams.com',
+            'full_name' => 'Pelapor Fasilitas (Karyawan / Tamu)',
+            'password' => Hash::make('Pass123', ['rounds' => 12]),
+            'is_active' => true,
+        ]);
+        UserRole::create(['user_id' => $pelapor->id, 'role_id' => $guestRole->id]);
 
         // 2. Create Buildings
         $gpa = Building::create([
