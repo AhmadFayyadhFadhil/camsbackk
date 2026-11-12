@@ -17,6 +17,8 @@ class Room extends Model
 
     protected $fillable = [
         'building_id',
+        'room_area_id',
+        'urutan_area',
         'kode_ruangan',
         'nama_ruangan',
         'lantai',
@@ -43,6 +45,7 @@ class Room extends Model
         'latitude' => 'float',
         'longitude' => 'float',
         'radius_meter' => 'integer',
+        'urutan_area' => 'integer',
         'asset_audit_interval_days' => 'integer',
         'last_asset_audit_at' => 'datetime',
         'next_asset_audit_due' => 'date',
@@ -86,6 +89,11 @@ class Room extends Model
     public function building(): BelongsTo
     {
         return $this->belongsTo(Building::class, 'building_id');
+    }
+
+    public function area(): BelongsTo
+    {
+        return $this->belongsTo(RoomArea::class, 'room_area_id');
     }
 
     public function pic(): BelongsTo
