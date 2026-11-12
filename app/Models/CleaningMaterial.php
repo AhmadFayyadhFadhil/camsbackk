@@ -32,6 +32,6 @@ class CleaningMaterial extends Model
             'submission_materials',
             'cleaning_material_id',
             'submission_id'
-        )->withTimestamps();
+        )->using(SubmissionMaterial::class)->withTimestamps();
     }
 }

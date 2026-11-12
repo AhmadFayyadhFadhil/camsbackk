@@ -155,12 +155,42 @@ class BuildingController extends Controller
         $oldData = $building->toArray();
 
         return DB::transaction(function () use ($building, $oldData) {
+            $roomIds = Room::withTrashed()->where('building_id', $building->id)->pluck('id');
+
+            if ($roomIds->isNotEmpty()) {
+                $taskIds = \App\Models\Task::whereIn('room_id', $roomIds)->pluck('id');
+                if ($taskIds->isNotEmpty()) {
+                    $subIds = \App\Models\ChecklistSubmission::whereIn('task_id', $taskIds)->pluck('id');
+                    if ($subIds->isNotEmpty()) {
+                        DB::table('verifications')->whereIn('submission_id', $subIds)->delete();
+                        DB::table('submission_materials')->whereIn('submission_id', $subIds)->delete();
+                        \App\Models\ChecklistResult::whereIn('submission_id', $subIds)->delete();
+                        \App\Models\ChecklistSubmission::whereIn('id', $subIds)->delete();
+                    }
+                    \App\Models\Task::whereIn('id', $taskIds)->delete();
+                }
+
+                \App\Models\Schedule::whereIn('room_id', $roomIds)->delete();
+
+                $auditIds = \App\Models\RoomAssetAudit::whereIn('room_id', $roomIds)->pluck('id');
+                if ($auditIds->isNotEmpty()) {
+                    DB::table('room_asset_audit_items')->whereIn('room_asset_audit_id', $auditIds)->delete();
+                    \App\Models\RoomAssetAudit::whereIn('id', $auditIds)->delete();
+                }
+
+                \App\Models\RoomAsset::whereIn('room_id', $roomIds)->delete();
+                \App\Models\Room::whereIn('id', $roomIds)->delete();
+            }
+
+            \App\Models\CsAssignment::where('building_id', $building->id)->delete();
+            DB::table('building_shifts')->where('building_id', $building->id)->delete();
+
             $building->update(['is_active' => false]);
             $building->delete();
 
             AuditLogService::log('DELETE_BUILDING', 'buildings', $building->id, $oldData, null);
 
-            return $this->success(null, 'Gedung berhasil dinonaktifkan dan di-soft delete. Data historis tetap terjaga.');
+            return $this->success(null, 'Gedung beserta ruangan dan data terkait berhasil dihapus sepenuhnya.');
         });
     }
 

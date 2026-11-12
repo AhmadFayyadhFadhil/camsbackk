@@ -172,18 +172,28 @@ class CsAssignmentController extends Controller
     }
 
     /**
-     * DELETE /cs-assignments/{id} (admin)
+     * DELETE /cs-assignments/{id} (admin, supervisor)
      */
     public function destroy($id)
     {
         $assignment = CsAssignment::findOrFail($id);
         $oldData = $assignment->toArray();
         
-        $assignment->delete();
+        return DB::transaction(function () use ($assignment, $id, $oldData) {
+            // Lepaskan alokasi CS dari tugas pending yang belum dikerjakan pada gedung ini
+            $buildingRoomIds = \App\Models\Room::where('building_id', $assignment->building_id)->pluck('id');
+            \App\Models\Task::whereIn('room_id', $buildingRoomIds)
+                ->where('cs_user_id', $assignment->cs_user_id)
+                ->where('status', \App\Enums\TaskStatusEnum::PENDING->value)
+                ->whereDoesntHave('submission')
+                ->update(['cs_user_id' => null]);
 
-        AuditLogService::log('DELETE_CS_ASSIGNMENT', 'cs_assignments', $id, $oldData, null);
+            $assignment->delete();
 
-        return $this->success(null, 'Penugasan CS berhasil dihapus.');
+            AuditLogService::log('DELETE_CS_ASSIGNMENT', 'cs_assignments', $id, $oldData, null);
+
+            return $this->success(null, 'Penugasan CS berhasil dihapus.');
+        });
     }
 }
 

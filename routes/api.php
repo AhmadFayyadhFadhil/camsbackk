@@ -198,7 +198,7 @@ Route::prefix('v1')->group(function () {
         Route::patch('findings/{id}/status', [FindingController::class, 'updateStatus'])
             ->middleware('role:admin,supervisor,cs,ob');
         Route::delete('findings/{id}', [FindingController::class, 'destroy'])
-            ->middleware('role:admin,pic');
+            ->middleware('role:admin,supervisor,pic');
 
         // Modul Notifikasi (SSE & History)
         Route::get('notifications/stream', [NotificationController::class, 'stream']);

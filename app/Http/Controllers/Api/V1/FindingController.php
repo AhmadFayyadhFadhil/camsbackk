@@ -400,18 +400,19 @@ class FindingController extends Controller
     }
 
     /**
-     * Hapus laporan temuan masalah (Admin, PIC dari ruangan terkait).
+     * Hapus laporan temuan masalah (Admin, Supervisor, atau PIC dari ruangan terkait).
      */
     public function destroy(Request $request, $id)
     {
-        $user    = $request->user();
-        $finding = Finding::findOrFail($id);
+        $user         = $request->user();
+        $finding      = Finding::findOrFail($id);
 
-        $isAdmin = $user->hasRole(RoleEnum::ADMIN);
-        $isPic   = $user->hasRole(RoleEnum::PIC);
+        $isAdmin      = $user->hasRole(RoleEnum::ADMIN);
+        $isSupervisor = $user->hasRole(RoleEnum::SUPERVISOR);
+        $isPic        = $user->hasRole(RoleEnum::PIC);
 
-        if (!$isAdmin && !$isPic) {
-            return $this->error('Akses ditolak. Hanya Admin atau PIC yang dapat menghapus laporan temuan ini.', [], 403);
+        if (!$isAdmin && !$isSupervisor && !$isPic) {
+            return $this->error('Akses ditolak. Hanya Admin, Supervisor, atau PIC yang dapat menghapus laporan temuan ini.', [], 403);
         }
 
         $oldData = $finding->toArray();

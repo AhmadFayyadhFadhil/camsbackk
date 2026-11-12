@@ -101,10 +101,8 @@ class Building extends Model
                 $room->delete();
             }
 
-            // Deactivate CS assignments for this building
-            $building->csAssignments()->update([
-                'tanggal_selesai' => now()->toDateString(),
-            ]);
+            // Bersihkan penugasan CS pada gedung ini
+            $building->csAssignments()->delete();
         });
     }
 }

@@ -304,7 +304,7 @@ class RoomController extends Controller
     }
 
     /**
-     * DELETE /rooms/{id} (admin)
+     * DELETE /rooms/{id} (admin, supervisor)
      */
     public function destroy($id)
     {
@@ -312,13 +312,40 @@ class RoomController extends Controller
         $oldData = $room->toArray();
 
         return DB::transaction(function () use ($room, $oldData) {
+            // 1. Bersihkan tugas, submission, hasil checklist terkait ruangan ini
+            $taskIds = \App\Models\Task::where('room_id', $room->id)->pluck('id');
+            if ($taskIds->isNotEmpty()) {
+                $subIds = \App\Models\ChecklistSubmission::whereIn('task_id', $taskIds)->pluck('id');
+                if ($subIds->isNotEmpty()) {
+                    DB::table('verifications')->whereIn('submission_id', $subIds)->delete();
+                    DB::table('submission_materials')->whereIn('submission_id', $subIds)->delete();
+                    \App\Models\ChecklistResult::whereIn('submission_id', $subIds)->delete();
+                    \App\Models\ChecklistSubmission::whereIn('id', $subIds)->delete();
+                }
+                \App\Models\Task::whereIn('id', $taskIds)->delete();
+            }
+
+            // 2. Bersihkan seluruh jadwal pada ruangan ini
+            \App\Models\Schedule::where('room_id', $room->id)->delete();
+
+            // 3. Bersihkan riwayat audit aset ruangan ini
+            $auditIds = \App\Models\RoomAssetAudit::where('room_id', $room->id)->pluck('id');
+            if ($auditIds->isNotEmpty()) {
+                DB::table('room_asset_audit_items')->whereIn('room_asset_audit_id', $auditIds)->delete();
+                \App\Models\RoomAssetAudit::whereIn('id', $auditIds)->delete();
+            }
+
+            // 4. Bersihkan aset ruangan
+            \App\Models\RoomAsset::where('room_id', $room->id)->delete();
+
+            // 5. Deaktivasi dan soft delete ruangan
             $room->update(['is_active' => false]);
             $room->delete();
 
             // Catat log audit
             AuditLogService::log('DELETE_ROOM', 'rooms', $room->id, $oldData, null);
 
-            return $this->success(null, 'Ruangan berhasil dinonaktifkan dan di-soft delete. Data historis tetap terjaga.');
+            return $this->success(null, 'Ruangan dan seluruh data terkait berhasil dihapus sepenuhnya.');
         });
     }
 }

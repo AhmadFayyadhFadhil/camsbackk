@@ -169,18 +169,26 @@ class ChecklistTemplateController extends Controller
     }
 
     /**
-     * DELETE /checklist-templates/{id} (admin)
+     * DELETE /checklist-templates/{id} (admin, supervisor)
      */
     public function destroy($id)
     {
         $template = ChecklistTemplate::findOrFail($id);
         $oldData = $template->toArray();
 
-        // Soft delete
-        $template->delete();
+        return DB::transaction(function () use ($template, $oldData) {
+            // 1. Soft-delete template items
+            ChecklistTemplateItem::where('checklist_template_id', $template->id)->delete();
 
-        AuditLogService::log('DELETE_CHECKLIST_TEMPLATE', 'checklist_templates', $template->id, $oldData, null);
+            // 2. Lepaskan relasi checklist_template_id dari master ruangan
+            \App\Models\Room::where('checklist_template_id', $template->id)->update(['checklist_template_id' => null]);
 
-        return $this->success(null, 'Template checklist berhasil dihapus.');
+            // 3. Soft delete master template
+            $template->delete();
+
+            AuditLogService::log('DELETE_CHECKLIST_TEMPLATE', 'checklist_templates', $template->id, $oldData, null);
+
+            return $this->success(null, 'Template checklist berhasil dihapus.');
+        });
     }
 }

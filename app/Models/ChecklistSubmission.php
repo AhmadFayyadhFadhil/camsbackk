@@ -92,6 +92,6 @@ class ChecklistSubmission extends Model
             'submission_materials',
             'submission_id',
             'cleaning_material_id'
-        )->withTimestamps();
+        )->using(SubmissionMaterial::class)->withTimestamps();
     }
 }

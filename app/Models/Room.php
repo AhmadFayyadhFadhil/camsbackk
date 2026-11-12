@@ -131,14 +131,11 @@ class Room extends Model
     protected static function booted(): void
     {
         static::deleting(function (Room $room) {
-            // Cascade soft-delete schedules for this room
-            foreach ($room->schedules as $schedule) {
-                $schedule->update(['is_active' => false]);
-                $schedule->delete();
-            }
+            // Batalkan dan bersihkan tugas pending yang belum dikerjakan
+            $room->tasks()->where('status', \App\Enums\TaskStatusEnum::PENDING->value)->whereDoesntHave('submission')->delete();
 
-            // Cancel pending tasks
-            $room->tasks()->where('status', \App\Enums\TaskStatusEnum::PENDING)->delete();
+            // Nonaktifkan seluruh jadwal pembersihan ruangan ini
+            $room->schedules()->update(['is_active' => false]);
         });
     }
 }

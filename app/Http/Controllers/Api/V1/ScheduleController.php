@@ -19,6 +19,8 @@ use App\Models\Shift;
 use App\Models\ChecklistItem;
 use App\Models\User;
 use App\Models\Task;
+use App\Models\ChecklistSubmission;
+use App\Models\ChecklistResult;
 use App\Enums\FrequencyEnum;
 use App\Enums\RoleEnum;
 use App\Enums\TaskStatusEnum;
@@ -37,9 +39,13 @@ class ScheduleController extends Controller
      */
     public function initData(Request $request)
     {
-        $schedules = Schedule::query()
-            ->with(['room.building', 'shift', 'checklistItem'])
-            ->get();
+        $schedulesQuery = Schedule::query()->with(['room.building', 'shift', 'checklistItem']);
+        if ($request->has('is_active')) {
+            $schedulesQuery->where('is_active', filter_var($request->get('is_active'), FILTER_VALIDATE_BOOLEAN));
+        } else {
+            $schedulesQuery->where('is_active', true);
+        }
+        $schedules = $schedulesQuery->get();
 
         $assignments = CsAssignment::query()
             ->with(['cs', 'building', 'shift'])
@@ -162,17 +168,34 @@ class ScheduleController extends Controller
             $data['hari_minggu'] = null;
         }
 
-        // Check Unique constraint manually to return a nice message
-        $exists = Schedule::where('room_id', $data['room_id'])
+        // Check Unique constraint manually to return a nice message or reactivate
+        $existingSchedule = Schedule::where('room_id', $data['room_id'])
             ->where('checklist_item_id', $data['checklist_item_id'])
             ->where('shift_id', $data['shift_id'])
             ->where('frekuensi', $data['frekuensi'])
-            ->exists();
+            ->first();
 
-        if ($exists) {
-            return $this->error('Validasi gagal.', [
-                'unique_schedule' => ['Jadwal untuk ruangan, item checklist, shift, dan frekuensi ini sudah ada.']
-            ], 422);
+        if ($existingSchedule) {
+            if ($existingSchedule->is_active) {
+                return $this->error('Validasi gagal.', [
+                    'unique_schedule' => ['Jadwal untuk ruangan, item checklist, shift, dan frekuensi ini sudah ada dan aktif.']
+                ], 422);
+            }
+
+            // Jika jadwal sebelumnya dinonaktifkan, perbarui data dan aktifkan kembali
+            $existingSchedule->update(array_merge($data, ['is_active' => true]));
+            $existingSchedule->load(['room', 'shift', 'checklistItem']);
+
+            try {
+                $generator = resolve(\App\Services\TaskGeneratorService::class);
+                $generator->generateForDate(\Carbon\Carbon::today('Asia/Jakarta'));
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Gagal generate task otomatis saat mengaktifkan kembali jadwal: ' . $e->getMessage());
+            }
+
+            AuditLogService::log('REACTIVATE_SCHEDULE', 'schedules', $existingSchedule->id, null, $existingSchedule->toArray());
+
+            return $this->success(new ScheduleResource($existingSchedule), 'Jadwal berhasil diaktifkan kembali.', 200);
         }
 
         $schedule = Schedule::create($data);
@@ -442,11 +465,32 @@ class ScheduleController extends Controller
     }
 
     /**
-     * DELETE /schedules/{id} (admin)
+     * DELETE /schedules/{id} (admin, supervisor)
      */
     public function destroy($id)
     {
-        return $this->deactivate($id);
+        $schedule = Schedule::findOrFail($id);
+        $oldData = $schedule->toArray();
+
+        return DB::transaction(function () use ($schedule, $oldData) {
+            $taskIds = Task::where('schedule_id', $schedule->id)->pluck('id');
+            if ($taskIds->isNotEmpty()) {
+                $subIds = ChecklistSubmission::whereIn('task_id', $taskIds)->pluck('id');
+                if ($subIds->isNotEmpty()) {
+                    DB::table('verifications')->whereIn('submission_id', $subIds)->delete();
+                    DB::table('submission_materials')->whereIn('submission_id', $subIds)->delete();
+                    \App\Models\ChecklistResult::whereIn('submission_id', $subIds)->delete();
+                    ChecklistSubmission::whereIn('id', $subIds)->delete();
+                }
+                Task::whereIn('id', $taskIds)->delete();
+            }
+
+            $schedule->delete();
+
+            AuditLogService::log('DELETE_SCHEDULE', 'schedules', $schedule->id, $oldData, null);
+
+            return $this->success(null, 'Jadwal berhasil dihapus sepenuhnya.');
+        });
     }
 
     /**

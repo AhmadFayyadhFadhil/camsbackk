@@ -102,22 +102,23 @@ class ShiftController extends Controller
     }
 
     /**
-     * Hapus shift (Admin Only).
+     * Hapus / Nonaktifkan shift (Admin & Supervisor).
      */
     public function destroy(Request $request, $id)
     {
         $shift = Shift::findOrFail($id);
-
         $user = $request->user();
-        if (!$user->hasRole(\App\Enums\RoleEnum::ADMIN)) {
-            return $this->error('Akses ditolak. Hanya Admin yang dapat menghapus shift.', [], 403);
+
+        if (!$user->hasRole(\App\Enums\RoleEnum::ADMIN) && !$user->hasRole(\App\Enums\RoleEnum::SUPERVISOR)) {
+            return $this->error('Akses ditolak. Hanya Admin dan Supervisor yang dapat menghapus shift.', [], 403);
         }
 
-        // Cek jika shift sudah terikat ke schedules atau tasks
+        // Cek jika shift sudah terikat ke schedules, tasks, atau cs_assignments
         $hasSchedules = \App\Models\Schedule::where('shift_id', $shift->id)->exists();
         $hasTasks = \App\Models\Task::where('shift_id', $shift->id)->exists();
+        $hasAssignments = \App\Models\CsAssignment::where('shift_id', $shift->id)->exists();
 
-        if ($hasSchedules || $hasTasks) {
+        if ($hasSchedules || $hasTasks || $hasAssignments) {
             // Jika sudah terikat, disable saja shift tersebut
             $oldData = $shift->toArray();
             $shift->update(['is_active' => false]);
@@ -126,11 +127,12 @@ class ShiftController extends Controller
             
             return $this->success(
                 new ShiftResource($shift),
-                'Shift tidak dapat dihapus karena sudah memiliki data relasi. Status dinonaktifkan.'
+                'Shift tidak dapat dihapus permanen karena sudah memiliki riwayat relasi. Status dinonaktifkan.'
             );
         }
 
         $oldData = $shift->toArray();
+        \Illuminate\Support\Facades\DB::table('building_shifts')->where('shift_id', $shift->id)->delete();
         $shift->delete();
 
         AuditLogService::log('DELETE_SHIFT', 'shifts', $id, $oldData, null);

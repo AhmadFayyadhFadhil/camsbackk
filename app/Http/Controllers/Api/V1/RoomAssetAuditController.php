@@ -700,10 +700,13 @@ class RoomAssetAuditController extends Controller
         $audit = RoomAssetAudit::findOrFail($id);
         $oldData = $audit->toArray();
 
-        $audit->delete();
+        return DB::transaction(function () use ($audit, $oldData) {
+            $audit->items()->delete();
+            $audit->delete();
 
-        AuditLogService::log('DELETE_ASSET_AUDIT', 'room_asset_audits', $audit->id, $oldData, null);
+            AuditLogService::log('DELETE_ASSET_AUDIT', 'room_asset_audits', $audit->id, $oldData, null);
 
-        return $this->success(null, 'Riwayat audit aset berhasil dihapus.');
+            return $this->success(null, 'Riwayat audit aset berhasil dihapus.');
+        });
     }
 }
