@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BuildingController;
 use App\Http\Controllers\Api\V1\RoomController;
+use App\Http\Controllers\Api\V1\RoomAreaController;
 use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\ChecklistItemController;
 use App\Http\Controllers\Api\V1\ScheduleController;
@@ -117,6 +118,7 @@ Route::prefix('v1')->group(function () {
         Route::get('buildings/{id}', [BuildingController::class, 'show']);
         Route::get('rooms', [RoomController::class, 'index']);
         Route::get('rooms/{id}', [RoomController::class, 'show']);
+        Route::get('room-areas', [RoomAreaController::class, 'index']);
         Route::get('checklist-items', [ChecklistItemController::class, 'index']);
         Route::get('checklist-items/{id}', [ChecklistItemController::class, 'show']);
         Route::get('checklist-templates', [ChecklistTemplateController::class, 'index']);

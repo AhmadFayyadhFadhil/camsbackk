@@ -26,11 +26,13 @@ class RoomRequest extends FormRequest
             $this->merge(['kode_ruangan' => $this->input('code')]);
         }
 
-        // 3. Map 'floor' to 'lantai' and cast to string
+        // 3. Map 'floor' to 'lantai' and cast to string (nilai kosong disimpan sebagai NULL, bukan string kosong)
         if ($this->has('floor') && !$this->has('lantai')) {
-            $this->merge(['lantai' => (string) $this->input('floor')]);
+            $floor = $this->input('floor');
+            $this->merge(['lantai' => ($floor === null || $floor === '') ? null : (string) $floor]);
         } elseif ($this->has('lantai')) {
-            $this->merge(['lantai' => (string) $this->input('lantai')]);
+            $lantai = $this->input('lantai');
+            $this->merge(['lantai' => ($lantai === null || $lantai === '') ? null : (string) $lantai]);
         }
     }
 
@@ -41,6 +43,7 @@ class RoomRequest extends FormRequest
 
         return [
             'building_id' => ['required', 'uuid', 'exists:buildings,id'],
+            'room_area_id' => ['nullable', 'uuid', 'exists:room_areas,id'],
             'nama_ruangan' => ['required', 'string', 'max:255'],
             'kode_ruangan' => [
                 'required',

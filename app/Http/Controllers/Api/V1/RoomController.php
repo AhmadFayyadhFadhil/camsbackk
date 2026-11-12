@@ -32,21 +32,41 @@ class RoomController extends Controller
      */
     public function index(Request $request)
     {
+        // Join ke room_areas hanya untuk pengurutan/pencarian per area (urutan sesuai sumber data Excel).
         $query = Room::query()
+            ->select('rooms.*')
+            ->leftJoin('room_areas', 'room_areas.id', '=', 'rooms.room_area_id')
             ->whereHas('building')
-            ->with(['building.shifts', 'pic', 'template', 'assets']);
+            ->with(['building.shifts', 'pic', 'template', 'assets', 'area']);
 
-        if ($request->has('search')) {
+        if ($request->filled('search')) {
             $search = $request->get('search');
             $query->where(function ($q) use ($search) {
-                $q->where('nama_ruangan', 'like', "%{$search}%")
-                  ->orWhere('kode_ruangan', 'like', "%{$search}%");
+                $q->where('rooms.nama_ruangan', 'like', "%{$search}%")
+                  ->orWhere('rooms.kode_ruangan', 'like', "%{$search}%")
+                  ->orWhere('room_areas.nama_area', 'like', "%{$search}%");
             });
         }
 
-        if ($request->has('is_active')) {
-            $query->where('is_active', filter_var($request->get('is_active'), FILTER_VALIDATE_BOOLEAN));
+        if ($request->filled('room_area_id')) {
+            $areaFilter = $request->get('room_area_id');
+            if ($areaFilter === 'none') {
+                $query->whereNull('rooms.room_area_id');
+            } else {
+                $query->where('rooms.room_area_id', $areaFilter);
+            }
         }
+
+        if ($request->has('is_active')) {
+            $query->where('rooms.is_active', filter_var($request->get('is_active'), FILTER_VALIDATE_BOOLEAN));
+        }
+
+        // Urutan: area (sesuai Excel) -> urutan ruangan dalam area -> nama. Ruangan tanpa area di paling bawah.
+        $query->orderByRaw('room_areas.urutan IS NULL')
+              ->orderBy('room_areas.urutan')
+              ->orderByRaw('rooms.urutan_area IS NULL')
+              ->orderBy('rooms.urutan_area')
+              ->orderBy('rooms.nama_ruangan');
 
         $perPage = $request->get('per_page', 20);
         $rooms = $query->paginate($perPage);
@@ -80,6 +100,7 @@ class RoomController extends Controller
             $room = Room::create([
                 'id' => $roomId,
                 'building_id' => $data['building_id'],
+                'room_area_id' => $data['room_area_id'] ?? null,
                 'kode_ruangan' => $data['kode_ruangan'],
                 'nama_ruangan' => $data['nama_ruangan'],
                 'lantai' => $data['lantai'] ?? null,
@@ -102,7 +123,7 @@ class RoomController extends Controller
                 ]);
             }
 
-            $room->load(['building', 'pic', 'template']);
+            $room->load(['building', 'pic', 'template', 'area']);
 
             AuditLogService::log('ROOM_CREATED', 'rooms', $room->id, null, $room->toArray());
 
@@ -115,7 +136,7 @@ class RoomController extends Controller
      */
     public function show($id)
     {
-        $room = Room::with(['building', 'pic', 'template', 'assets'])->findOrFail($id);
+        $room = Room::with(['building', 'pic', 'template', 'assets', 'area'])->findOrFail($id);
         return $this->success(new RoomResource($room), 'Detail ruangan berhasil diambil.');
     }
 
@@ -137,8 +158,14 @@ class RoomController extends Controller
         }
 
         return DB::transaction(function () use ($room, $data, $oldData) {
+            // Jika area dipindah, urutan lama tidak berlaku lagi (ruangan diurutkan menurut nama di area barunya).
+            $newAreaId = array_key_exists('room_area_id', $data) ? ($data['room_area_id'] ?: null) : $room->room_area_id;
+            $areaChanged = $newAreaId !== $room->room_area_id;
+
             $room->update([
                 'building_id' => $data['building_id'],
+                'room_area_id' => $newAreaId,
+                'urutan_area' => $areaChanged ? null : $room->urutan_area,
                 'kode_ruangan' => $data['kode_ruangan'],
                 'nama_ruangan' => $data['nama_ruangan'],
                 'lantai' => $data['lantai'] ?? null,
@@ -171,7 +198,7 @@ class RoomController extends Controller
                 $room->update(['pic_user_id' => $newPicId]);
             }
 
-            $room->load(['building', 'pic', 'template']);
+            $room->load(['building', 'pic', 'template', 'area']);
 
             AuditLogService::log('UPDATE_ROOM', 'rooms', $room->id, $oldData, $room->toArray());
 
