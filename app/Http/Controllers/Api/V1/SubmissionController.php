@@ -42,6 +42,61 @@ class SubmissionController extends Controller
 
         $user = $request->user();
 
+        $rawToken = trim((string)$request->input('qr_code_token', ''));
+        $rawRoomId = trim((string)$request->input('room_id', ''));
+        $rawCode = '';
+        $rawName = '';
+
+        // Jika token berupa JSON string (misal dikirim mentah dari scanner)
+        if (!empty($rawToken) && (str_starts_with($rawToken, '{') || str_contains($rawToken, 'token'))) {
+            try {
+                $decodedJson = json_decode($rawToken, true);
+                if (is_array($decodedJson)) {
+                    if (!empty($decodedJson['room_id'])) $rawRoomId = $decodedJson['room_id'];
+                    if (!empty($decodedJson['token'])) $rawToken = $decodedJson['token'];
+                    if (!empty($decodedJson['code'])) $rawCode = $decodedJson['code'];
+                    if (!empty($decodedJson['name'])) $rawName = $decodedJson['name'];
+                }
+            } catch (\Throwable $e) {}
+        }
+
+        $scannedRoom = null;
+
+        // 1. Cari berdasarkan token QR resmi
+        if (!empty($rawToken)) {
+            $scannedRoom = Room::where('qr_code_token', $rawToken)->first();
+        }
+
+        // 2. Cari berdasarkan ID ruangan (UUID)
+        if (!$scannedRoom && !empty($rawRoomId) && Str::isUuid($rawRoomId)) {
+            $scannedRoom = Room::find($rawRoomId);
+        }
+
+        // 3. Cari berdasarkan Kode Ruangan (contoh: OFC-23, PNTRY, dsb)
+        if (!$scannedRoom && !empty($rawCode)) {
+            $scannedRoom = Room::whereRaw('LOWER(kode_ruangan) = ?', [strtolower($rawCode)])->first();
+        }
+        if (!$scannedRoom && !empty($rawToken)) {
+            $scannedRoom = Room::whereRaw('LOWER(kode_ruangan) = ?', [strtolower($rawToken)])->first();
+        }
+        if (!$scannedRoom && !empty($rawRoomId)) {
+            $scannedRoom = Room::whereRaw('LOWER(kode_ruangan) = ?', [strtolower($rawRoomId)])->first();
+        }
+
+        // 4. Cari jika token yang discan adalah ID UUID ruangan
+        if (!$scannedRoom && !empty($rawToken) && Str::isUuid($rawToken)) {
+            $scannedRoom = Room::find($rawToken);
+        }
+
+        // 5. Cari berdasarkan nama ruangan jika ada
+        if (!$scannedRoom && !empty($rawName)) {
+            $cleanedName = preg_replace('/^(ruang|r\.)\s+/i', '', trim($rawName));
+            $scannedRoom = Room::whereRaw('LOWER(nama_ruangan) = ?', [strtolower($rawName)])
+                ->orWhereRaw('LOWER(nama_ruangan) = ?', [strtolower($cleanedName)])
+                ->orWhereRaw('LOWER(nama_ruangan) LIKE ?', ['%' . strtolower($cleanedName) . '%'])
+                ->first();
+        }
+
         $task = null;
         if ($request->task_id) {
             $task = Task::with(['room.building', 'shift'])->find($request->task_id);
@@ -51,43 +106,21 @@ class SubmissionController extends Controller
 
         if ($task) {
             $room = $task->room;
-        }
+            // Jika ada stiker QR yang terdeteksi, verifikasi kesesuaiannya dengan ruangan tugas
+            if ($scannedRoom && $room) {
+                $stripPrefix = fn($str) => preg_replace('/^(ruang|r\.)\s+/i', '', strtolower(trim((string)$str)));
+                $isMatch = ($scannedRoom->id === $room->id) ||
+                           (strtolower($scannedRoom->kode_ruangan) === strtolower($room->kode_ruangan)) ||
+                           ($stripPrefix($scannedRoom->nama_ruangan) === $stripPrefix($room->nama_ruangan));
 
-        $rawToken = trim((string)$request->input('qr_code_token', ''));
-        $rawRoomId = trim((string)$request->input('room_id', ''));
-
-        // Jika token berupa JSON string (misal dikirim mentah dari scanner)
-        if (!empty($rawToken) && (str_starts_with($rawToken, '{') || str_contains($rawToken, 'token'))) {
-            try {
-                $decodedJson = json_decode($rawToken, true);
-                if (is_array($decodedJson)) {
-                    if (!empty($decodedJson['room_id'])) $rawRoomId = $decodedJson['room_id'];
-                    if (!empty($decodedJson['token'])) $rawToken = $decodedJson['token'];
+                if (!$isMatch) {
+                    return $this->error("QR Code tidak cocok! Anda memindai QR untuk '{$scannedRoom->nama_ruangan}' ({$scannedRoom->kode_ruangan}), sedangkan tugas ini adalah untuk '{$room->nama_ruangan}' ({$room->kode_ruangan}).", [], 422);
                 }
-            } catch (\Throwable $e) {}
-        }
-
-        // 1. Cari berdasarkan token QR resmi
-        if (!$room && !empty($rawToken)) {
-            $room = Room::where('qr_code_token', $rawToken)->first();
-        }
-
-        // 2. Cari berdasarkan ID ruangan (UUID)
-        if (!$room && !empty($rawRoomId) && Str::isUuid($rawRoomId)) {
-            $room = Room::find($rawRoomId);
-        }
-
-        // 3. Cari berdasarkan Kode Ruangan (contoh: WDA1, RKIT, dsb)
-        if (!$room && !empty($rawToken)) {
-            $room = Room::whereRaw('LOWER(kode_ruangan) = ?', [strtolower($rawToken)])->first();
-        }
-        if (!$room && !empty($rawRoomId)) {
-            $room = Room::whereRaw('LOWER(kode_ruangan) = ?', [strtolower($rawRoomId)])->first();
-        }
-
-        // 4. Cari jika token yang discan adalah ID UUID ruangan
-        if (!$room && !empty($rawToken) && Str::isUuid($rawToken)) {
-            $room = Room::find($rawToken);
+            } elseif (!$scannedRoom && empty($rawToken) && empty($rawRoomId)) {
+                return $this->error('Token QR ruangan tidak terdeteksi. Silakan arahkan kamera kembali.', [], 400);
+            }
+        } else {
+            $room = $scannedRoom;
         }
 
         if (!$room) {
@@ -331,10 +364,10 @@ class SubmissionController extends Controller
             'results.*.catatan' => ['nullable', 'string'],
             'material_ids' => ['nullable', 'array'],
             'material_ids.*' => ['uuid', 'exists:cleaning_materials,id'],
-            'foto_after_1' => ['required', 'image', 'max:1024'], // 1MB limit
-            'foto_after_2' => ['required', 'image', 'max:1024'], // 1MB limit
-            'foto_after_3' => ['required', 'image', 'max:1024'], // 1MB limit
-            'foto_after_4' => ['required', 'image', 'max:1024'], // 1MB limit
+            'foto_after_1' => ['required', 'image', 'max:1024'], // 1MB limit (Foto Utama Tampak Keseluruhan)
+            'foto_after_2' => ['nullable', 'image', 'max:1024'],
+            'foto_after_3' => ['nullable', 'image', 'max:1024'],
+            'foto_after_4' => ['nullable', 'image', 'max:1024'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'gps_accuracy' => ['nullable', 'numeric'],
@@ -366,15 +399,15 @@ class SubmissionController extends Controller
             return $this->error('Laporan untuk tugas ini sudah pernah diserahkan. Gunakan endpoint resubmit jika ingin memperbarui.', [], 400);
         }
 
-        // Membaca file gambar sebagai biner
+        // Membaca file gambar sebagai biner (foto_after_1 wajib, foto 2-4 opsional)
         $fotoAfter1 = file_get_contents($request->file('foto_after_1')->getRealPath());
         $fotoAfter1Mime = $request->file('foto_after_1')->getMimeType();
-        $fotoAfter2 = file_get_contents($request->file('foto_after_2')->getRealPath());
-        $fotoAfter2Mime = $request->file('foto_after_2')->getMimeType();
-        $fotoAfter3 = file_get_contents($request->file('foto_after_3')->getRealPath());
-        $fotoAfter3Mime = $request->file('foto_after_3')->getMimeType();
-        $fotoAfter4 = file_get_contents($request->file('foto_after_4')->getRealPath());
-        $fotoAfter4Mime = $request->file('foto_after_4')->getMimeType();
+        $fotoAfter2 = $request->hasFile('foto_after_2') ? file_get_contents($request->file('foto_after_2')->getRealPath()) : null;
+        $fotoAfter2Mime = $request->hasFile('foto_after_2') ? $request->file('foto_after_2')->getMimeType() : null;
+        $fotoAfter3 = $request->hasFile('foto_after_3') ? file_get_contents($request->file('foto_after_3')->getRealPath()) : null;
+        $fotoAfter3Mime = $request->hasFile('foto_after_3') ? $request->file('foto_after_3')->getMimeType() : null;
+        $fotoAfter4 = $request->hasFile('foto_after_4') ? file_get_contents($request->file('foto_after_4')->getRealPath()) : null;
+        $fotoAfter4Mime = $request->hasFile('foto_after_4') ? $request->file('foto_after_4')->getMimeType() : null;
 
         // Validasi Geofence GPS
         $geofenceError = '';
@@ -406,6 +439,8 @@ class SubmissionController extends Controller
                 'scan_token_used' => $representativeTask->room->qr_code_token ?? '',
                 'catatan_cs' => $request->catatan_cs,
                 'status' => SubmissionStatusEnum::SUBMITTED,
+                'foto_after' => $fotoAfter1,
+                'foto_after_mime' => $fotoAfter1Mime,
                 'foto_after_1' => $fotoAfter1,
                 'foto_after_1_mime' => $fotoAfter1Mime,
                 'foto_after_2' => $fotoAfter2,
@@ -490,10 +525,10 @@ class SubmissionController extends Controller
             'results.*.catatan' => ['nullable', 'string'],
             'material_ids' => ['nullable', 'array'],
             'material_ids.*' => ['uuid', 'exists:cleaning_materials,id'],
-            'foto_after_1' => ['required', 'image', 'max:1024'], // 1MB limit
-            'foto_after_2' => ['required', 'image', 'max:1024'], // 1MB limit
-            'foto_after_3' => ['required', 'image', 'max:1024'], // 1MB limit
-            'foto_after_4' => ['required', 'image', 'max:1024'], // 1MB limit
+            'foto_after_1' => ['required', 'image', 'max:1024'], // 1MB limit (Foto Utama Tampak Keseluruhan)
+            'foto_after_2' => ['nullable', 'image', 'max:1024'],
+            'foto_after_3' => ['nullable', 'image', 'max:1024'],
+            'foto_after_4' => ['nullable', 'image', 'max:1024'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'gps_accuracy' => ['nullable', 'numeric'],
@@ -519,15 +554,15 @@ class SubmissionController extends Controller
             return $this->error('Tidak ada tugas berstatus "rejected" untuk laporan ini.', [], 400);
         }
 
-        // Membaca file gambar sebagai biner
+        // Membaca file gambar sebagai biner (foto_after_1 wajib, foto 2-4 opsional)
         $fotoAfter1 = file_get_contents($request->file('foto_after_1')->getRealPath());
         $fotoAfter1Mime = $request->file('foto_after_1')->getMimeType();
-        $fotoAfter2 = file_get_contents($request->file('foto_after_2')->getRealPath());
-        $fotoAfter2Mime = $request->file('foto_after_2')->getMimeType();
-        $fotoAfter3 = file_get_contents($request->file('foto_after_3')->getRealPath());
-        $fotoAfter3Mime = $request->file('foto_after_3')->getMimeType();
-        $fotoAfter4 = file_get_contents($request->file('foto_after_4')->getRealPath());
-        $fotoAfter4Mime = $request->file('foto_after_4')->getMimeType();
+        $fotoAfter2 = $request->hasFile('foto_after_2') ? file_get_contents($request->file('foto_after_2')->getRealPath()) : null;
+        $fotoAfter2Mime = $request->hasFile('foto_after_2') ? $request->file('foto_after_2')->getMimeType() : null;
+        $fotoAfter3 = $request->hasFile('foto_after_3') ? file_get_contents($request->file('foto_after_3')->getRealPath()) : null;
+        $fotoAfter3Mime = $request->hasFile('foto_after_3') ? $request->file('foto_after_3')->getMimeType() : null;
+        $fotoAfter4 = $request->hasFile('foto_after_4') ? file_get_contents($request->file('foto_after_4')->getRealPath()) : null;
+        $fotoAfter4Mime = $request->hasFile('foto_after_4') ? $request->file('foto_after_4')->getMimeType() : null;
 
         // Validasi Geofence GPS
         $geofenceError = '';
@@ -557,6 +592,8 @@ class SubmissionController extends Controller
                 'resubmit_count' => $submission->resubmit_count + 1,
                 'catatan_cs' => $request->catatan_cs,
                 'status' => SubmissionStatusEnum::SUBMITTED,
+                'foto_after' => $fotoAfter1,
+                'foto_after_mime' => $fotoAfter1Mime,
                 'foto_after_1' => $fotoAfter1,
                 'foto_after_1_mime' => $fotoAfter1Mime,
                 'foto_after_2' => $fotoAfter2,
@@ -747,7 +784,7 @@ class SubmissionController extends Controller
     }
 
     /**
-     * Memvalidasi apakah posisi CS berada di dalam batas radius gedung.
+     * Memvalidasi apakah posisi CS berada di dalam batas radius gedung/ruangan.
      */
     private function validateGeofence($room, $lat, $lon, &$errorMessage)
     {
@@ -756,9 +793,9 @@ class SubmissionController extends Controller
             return true;
         }
 
-        $building = $room->building;
-        if (!$building || $building->latitude === null || $building->longitude === null) {
-            // Jika koordinat gedung belum diatur, lewati pengecekan
+        $geofence = $room->getEffectiveGeofence();
+        if ($geofence['type'] === 'none') {
+            // Jika koordinat belum diatur, lewati pengecekan
             return true;
         }
 
@@ -767,13 +804,20 @@ class SubmissionController extends Controller
             return false;
         }
 
-        $distance = $this->calculateDistance($lat, $lon, $building->latitude, $building->longitude);
-        $allowedDistance = \App\Helpers\SettingHelper::get('geofence_allowed_distance_meters', 50);
+        $distance = \App\Helpers\GeoHelper::haversineDistance(
+            (float) $lat,
+            (float) $lon,
+            (float) $geofence['latitude'],
+            (float) $geofence['longitude']
+        );
+        $baseRadius = (float) ($geofence['radius_meter'] ?? 25);
+        $allowedDistance = max($baseRadius, (float) \App\Helpers\SettingHelper::get('geofence_allowed_distance_meters', 50));
 
         if ($distance > $allowedDistance) {
+            $targetLabel = $geofence['type'] === 'room' ? "ruangan {$geofence['target_name']}" : "gedung {$geofence['target_name']}";
             $errorMessage = sprintf(
-                'Akses ditolak: Anda terdeteksi berada di luar radius gedung %s. Jarak Anda: %d meter (Batas toleransi: %d meter).',
-                $building->nama_gedung,
+                'Akses ditolak: Anda terdeteksi berada di luar radius %s. Jarak Anda: %d meter (Batas toleransi: %d meter).',
+                $targetLabel,
                 round($distance),
                 $allowedDistance
             );

@@ -232,11 +232,14 @@ class DashboardController extends Controller
                     'b.id as building_id',
                     'b.nama_gedung as building_name',
                     'b.kode_gedung as building_code',
+                    'b.latitude',
+                    'b.longitude',
+                    'b.radius_meter',
                     DB::raw('COUNT(DISTINCT r.id) as total_rooms'),
                     DB::raw('COUNT(t.id) as total_tasks'),
                     DB::raw('SUM(CASE WHEN t.status = "completed" THEN 1 ELSE 0 END) as completed_tasks')
                 )
-                ->groupBy('b.id', 'b.nama_gedung', 'b.kode_gedung')
+                ->groupBy('b.id', 'b.nama_gedung', 'b.kode_gedung', 'b.latitude', 'b.longitude', 'b.radius_meter')
                 ->orderBy('b.nama_gedung')
                 ->get();
 
@@ -249,6 +252,9 @@ class DashboardController extends Controller
                     'building_id' => $b->building_id,
                     'building_name' => $b->building_name,
                     'building_code' => $b->building_code,
+                    'latitude' => $b->latitude !== null ? (float)$b->latitude : null,
+                    'longitude' => $b->longitude !== null ? (float)$b->longitude : null,
+                    'radius_meter' => (int)($b->radius_meter ?? 250),
                     'total_rooms' => (int) $b->total_rooms,
                     'total_tasks' => $totalTasks,
                     'completed_tasks' => $completed,

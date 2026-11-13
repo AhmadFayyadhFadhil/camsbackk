@@ -94,7 +94,7 @@ class RoomController extends Controller
             $token = (string) Str::uuid();
 
             // 1. Generate QR Code
-            $qrBinary = $this->qrCodeService->generate($roomId, $token, $data['building_id']);
+            $qrBinary = $this->qrCodeService->generate($roomId, $token, $data['building_id'], $data['kode_ruangan'], $data['nama_ruangan']);
 
             // 2. Create Room
             $room = Room::create([
@@ -301,7 +301,7 @@ class RoomController extends Controller
         $oldData = $room->toArray();
 
         $token = (string) Str::uuid();
-        $qrBinary = $this->qrCodeService->generate($room->id, $token, $room->building_id);
+        $qrBinary = $this->qrCodeService->generate($room->id, $token, $room->building_id, $room->kode_ruangan, $room->nama_ruangan);
 
         $room->update([
             'qr_code_token' => $token,
@@ -321,7 +321,13 @@ class RoomController extends Controller
         $room = Room::findOrFail($id);
 
         if (!$room->qr_code_image) {
-            return $this->error('QR Code tidak ditemukan untuk ruangan ini.', [], 404);
+            $token = $room->qr_code_token ?: (string) Str::uuid();
+            $qrBinary = $this->qrCodeService->generate($room->id, $token, $room->building_id, $room->kode_ruangan, $room->nama_ruangan);
+            $room->update([
+                'qr_code_token' => $token,
+                'qr_code_image' => $qrBinary,
+            ]);
+            $room->refresh();
         }
 
         // Streaming binary PNG langsung dari DB ke browser
