@@ -2,87 +2,40 @@
 
 namespace App\Console\Commands;
 
+use App\Services\VerificationWorkflowService;
 use Illuminate\Console\Command;
-use App\Models\ChecklistSubmission;
-use App\Models\User;
-use App\Models\Notification;
-use App\Enums\RoleEnum;
-use App\Enums\SubmissionStatusEnum;
-use App\Services\NotificationService;
-use Carbon\Carbon;
 
+/**
+ * Scheduler workflow verifikasi Checklist Harian.
+ *
+ * 1. Mengarahkan laporan antre yang belum punya penangani (data lama / akun hierarki baru dikonfigurasi).
+ * 2. Mengalihkan laporan yang belum diverifikasi Pak Kusnan dalam SLA (24 jam kalender sejak submit)
+ *    kepada Pak Winaryo. Idempotent: laporan yang sudah dialihkan tidak diproses ulang.
+ *
+ * Menggantikan eskalasi lama ke PIC (SLA 120 menit) yang tidak lagi dipakai.
+ */
 class CheckEscalations extends Command
 {
     protected $signature = 'cams:check-escalations';
-    protected $description = 'Otomatisasi eskalasi laporan kebersihan yang belum diverifikasi oleh PIC melewati batas waktu toleransi';
+    protected $description = 'Alihkan laporan Checklist Harian yang melewati SLA verifikasi (24 jam kalender) dari Supervisor Verifikator ke Supervisor tertinggi';
 
-    public function handle()
+    public function handle(VerificationWorkflowService $workflow): int
     {
-        $this->info('Memeriksa eskalasi laporan kebersihan...');
+        $this->info('Memeriksa SLA verifikasi Checklist Harian (' . VerificationWorkflowService::slaHours() . ' jam kalender)...');
 
-        $timeoutMinutes = (int) \App\Helpers\SettingHelper::get('escalation_pic_timeout_minutes', 120);
-        $thresholdTime = Carbon::now('Asia/Jakarta')->subMinutes($timeoutMinutes);
+        $assigned = $workflow->assignUnrouted();
+        if ($assigned > 0) {
+            $this->info("{$assigned} laporan antre diarahkan ke penangani verifikasi.");
+        }
 
-        // Ambil submission pending (submitted)
-        $submissions = ChecklistSubmission::where('status', SubmissionStatusEnum::SUBMITTED)
-            ->where('submitted_at', '<=', $thresholdTime)
-            ->whereDoesntHave('verifications')
-            ->with(['task.room.pic', 'cs'])
-            ->get();
-
-        if ($submissions->isEmpty()) {
-            $this->info('Tidak ada laporan kebersihan pending yang melewati batas toleransi.');
+        if (!$workflow->head()) {
+            $this->warn('Supervisor tertinggi belum dikonfigurasi (jalankan ChecklistVerificationHierarchySeeder). Pengalihan dilewati.');
             return self::SUCCESS;
         }
 
-        // Ambil semua user Supervisor
-        $supervisors = User::whereHas('roles', function ($q) {
-            $q->where('name', RoleEnum::SUPERVISOR->value);
-        })->where('is_active', true)->get();
+        $redirected = $workflow->redirectOverdue();
+        $this->info("Selesai. {$redirected} laporan dialihkan ke Supervisor tertinggi karena melewati SLA.");
 
-        if ($supervisors->isEmpty()) {
-            $this->warn('Tidak ada user Supervisor ditemukan.');
-            return self::SUCCESS;
-        }
-
-        $count = 0;
-        foreach ($submissions as $submission) {
-            // Cek apakah notifikasi ESCALATION_PIC untuk submission ini sudah pernah dikirim
-            $alreadyEscalated = Notification::where('type', 'ESCALATION_PIC')
-                ->where('data->submission_id', $submission->id)
-                ->exists();
-
-            if ($alreadyEscalated) {
-                continue;
-            }
-
-            $roomName = $submission->task?->room?->nama_ruangan ?? 'Ruangan';
-            $roomCode = $submission->task?->room?->kode_ruangan ?? '-';
-            $picName = $submission->task?->room?->pic?->full_name ?? 'Unassigned';
-            $csName = $submission->cs?->full_name ?? 'CS';
-            $submissionTimeStr = $submission->submitted_at->toDateTimeString();
-
-            foreach ($supervisors as $supervisor) {
-                NotificationService::send(
-                    $supervisor->id,
-                    'ESCALATION_PIC',
-                    "Eskalasi Verifikasi: Ruang {$roomName}",
-                    "Laporan pengerjaan kebersihan ruangan {$roomName} ({$roomCode}) oleh CS {$csName} pada {$submissionTimeStr} telah melewati batas toleransi {$timeoutMinutes} menit dan belum diverifikasi oleh PIC {$picName}.",
-                    [
-                        'submission_id' => $submission->id,
-                        'room_name' => $roomName,
-                        'room_code' => $roomCode,
-                        'cs_name' => $csName,
-                        'pic_name' => $picName,
-                        'submission_time' => $submissionTimeStr,
-                    ],
-                    'both'
-                );
-            }
-            $count++;
-        }
-
-        $this->info("Eskalasi selesai. {$count} laporan berhasil dieskalasikan.");
         return self::SUCCESS;
     }
 }

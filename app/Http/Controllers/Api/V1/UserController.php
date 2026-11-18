@@ -13,6 +13,7 @@ use App\Models\RoomPicHistory;
 use App\Services\AuditLogService;
 use App\Services\NotificationService;
 use App\Traits\ApiResponse;
+use App\Enums\SupervisorLevelEnum;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
@@ -55,6 +56,10 @@ class UserController extends Controller
     {
         $data = $request->validated();
 
+        if ($levelError = $this->validateSupervisorLevelChange($data, null, $request->user())) {
+            return $levelError;
+        }
+
         return DB::transaction(function () use ($data) {
             // 1. Buat User
             $user = User::create([
@@ -64,6 +69,7 @@ class UserController extends Controller
                 'full_name' => $data['full_name'],
                 'phone' => $data['phone'] ?? null,
                 'is_active' => isset($data['is_active']) ? (bool)$data['is_active'] : true,
+                'supervisor_level' => in_array('supervisor', $data['roles'], true) ? ($data['supervisor_level'] ?? null) : null,
             ]);
 
             // 2. Sync Roles (Manually insert to UserRole)
@@ -112,8 +118,18 @@ class UserController extends Controller
     public function update(UserRequest $request, $id)
     {
         $user = User::findOrFail($id);
+        $actor = $request->user();
+
+        if (!$this->canManageUser($actor, $user)) {
+            return $this->error('Anda tidak memiliki wewenang untuk mengubah akun Supervisor tertinggi / Verifikator.', null, 403);
+        }
+
         $oldData = $user->load('roles')->toArray();
         $data = $request->validated();
+
+        if ($levelError = $this->validateSupervisorLevelChange($data, $user, $actor)) {
+            return $levelError;
+        }
 
         return DB::transaction(function () use ($user, $data, $oldData) {
             $updateData = [
@@ -125,6 +141,13 @@ class UserController extends Controller
 
             if (isset($data['is_active'])) {
                 $updateData['is_active'] = (bool)$data['is_active'];
+            }
+
+            // Level hierarki: hanya berubah bila dikirim (validasi hak akses di atas); dibersihkan bila bukan supervisor
+            if (array_key_exists('supervisor_level', $data)) {
+                $updateData['supervisor_level'] = in_array('supervisor', $data['roles'], true) ? $data['supervisor_level'] : null;
+            } elseif (!in_array('supervisor', $data['roles'], true)) {
+                $updateData['supervisor_level'] = null;
             }
 
             if (!empty($data['password'])) {
@@ -158,6 +181,10 @@ class UserController extends Controller
     public function deactivate($id)
     {
         $user = User::findOrFail($id);
+
+        if (!$this->canManageUser(Auth::user(), $user)) {
+            return $this->error('Anda tidak memiliki wewenang untuk menghapus akun Supervisor tertinggi / Verifikator.', null, 403);
+        }
 
         // Proteksi Admin agar tidak bisa dihapus
         if ($user->hasRole('admin')) {
@@ -203,6 +230,11 @@ class UserController extends Controller
         // Proteksi 1: Jangan izinkan menonaktifkan diri sendiri
         if ($user->id === $actor->id) {
             return $this->error('Anda tidak dapat mengubah status aktif akun Anda sendiri.', null, 400);
+        }
+
+        // Proteksi 1b: akun Supervisor tertinggi / Verifikator hanya dapat dikelola Admin atau Supervisor tertinggi
+        if (!$this->canManageUser($actor, $user)) {
+            return $this->error('Anda tidak memiliki wewenang untuk mengubah status akun Supervisor tertinggi / Verifikator.', null, 403);
         }
 
         // Proteksi 2: Supervisor tidak boleh menonaktifkan akun Administrator
@@ -255,5 +287,54 @@ class UserController extends Controller
 
         return $this->success(UserResource::collection($sortedUsers), 'Daftar staf aktif berhasil diambil.');
     }
-}
 
+    /**
+     * Hanya Admin atau Supervisor tertinggi (Pak Winaryo) yang boleh memasang / mengubah level hierarki Supervisor.
+     * Mengembalikan response error bila tidak sah / melanggar keunikan, atau null bila aman.
+     */
+    private function validateSupervisorLevelChange(array $data, ?User $target, User $actor)
+    {
+        if (!array_key_exists('supervisor_level', $data)) {
+            return null;
+        }
+
+        $newLevel = $data['supervisor_level'] ?? null;
+        $isSupervisor = in_array('supervisor', $data['roles'] ?? [], true);
+        if (!$isSupervisor) {
+            $newLevel = null; // level hanya bermakna untuk role supervisor
+        }
+        $oldLevel = $target?->supervisor_level;
+
+        if ($newLevel === $oldLevel) {
+            return null;
+        }
+
+        if (!$actor->hasRole('admin') && !$actor->isHeadSupervisor()) {
+            return $this->error('Hanya Admin atau Supervisor tertinggi yang dapat mengatur level hierarki Supervisor.', null, 403);
+        }
+
+        if (in_array($newLevel, [SupervisorLevelEnum::HEAD->value, SupervisorLevelEnum::VERIFIER->value], true)) {
+            $holder = User::where('supervisor_level', $newLevel)
+                ->where('is_active', true)
+                ->when($target, fn ($q) => $q->where('id', '!=', $target->id))
+                ->first();
+            if ($holder) {
+                return $this->error("Level tersebut sudah dipegang oleh {$holder->full_name}. Ubah level akun tersebut terlebih dahulu.", null, 422);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Akun hierarki Supervisor tertinggi/verifikator hanya dapat dikelola Admin atau Supervisor tertinggi
+     * (mencegah Supervisor operasional mengambil alih / menonaktifkan akun approver).
+     */
+    private function canManageUser(User $actor, User $target): bool
+    {
+        if ($actor->id === $target->id || $actor->hasRole('admin') || $actor->isHeadSupervisor()) {
+            return true;
+        }
+        return !in_array($target->supervisor_level, [SupervisorLevelEnum::HEAD->value, SupervisorLevelEnum::VERIFIER->value], true);
+    }
+}

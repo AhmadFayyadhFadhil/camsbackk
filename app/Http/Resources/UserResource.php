@@ -24,6 +24,8 @@ class UserResource extends JsonResource
             'foto_profile' => $this->foto_profile ? url('api/v1/auth/avatar/' . $this->id) . '?v=' . ($this->updated_at?->timestamp ?? time()) : null,
             'avatar_url' => $this->foto_profile ? url('api/v1/auth/avatar/' . $this->id) . '?v=' . ($this->updated_at?->timestamp ?? time()) : null,
             'is_active' => (bool)$this->is_active,
+            'supervisor_level' => $this->supervisorLevel()?->value,
+            'is_on_duty' => $this->supervisorLevel() === \App\Enums\SupervisorLevelEnum::VERIFIER ? (bool)$this->is_on_duty : null,
             'last_login_at' => $this->last_login_at?->toIso8601String(),
             'roles' => $this->roles->map(fn($r) => $r->name === 'cs' ? 'cleaning_service' : $r->name)->unique()->values(),
             'is_on_shift' => (function() {

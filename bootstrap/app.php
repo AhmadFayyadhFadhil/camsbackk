@@ -23,7 +23,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('cams:generate-tasks')->dailyAt('00:01')->timezone('Asia/Jakarta');
         $schedule->command('cams:check-overdue')->everyFifteenMinutes();
         $schedule->command('cams:send-reminders')->everyFifteenMinutes();
-        $schedule->command('cams:check-escalations')->everyThirtyMinutes();
+        // Pengalihan laporan Checklist Harian yang melewati SLA verifikasi 24 jam kalender (nonstop)
+        $schedule->command('cams:check-escalations')->everyFifteenMinutes()->withoutOverlapping();
         $schedule->command('cams:check-finding-deadline')->everyThirtyMinutes();
     })
     ->withExceptions(function (Exceptions $exceptions): void {

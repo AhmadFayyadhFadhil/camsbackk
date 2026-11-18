@@ -53,6 +53,11 @@ class UserRequest extends FormRequest
             }
         }
 
+        // 3b. Level kosong dianggap null
+        if ($this->has('supervisor_level') && $this->input('supervisor_level') === '') {
+            $this->merge(['supervisor_level' => null]);
+        }
+
         // 4. Handle is_active boolean conversion
         if ($this->has('is_active')) {
             $this->merge([
@@ -78,6 +83,8 @@ class UserRequest extends FormRequest
             'roles' => ['required', 'array'],
             'roles.*' => ['required', 'string', 'exists:roles,name'],
             'is_active' => ['nullable', 'boolean'],
+            // Level hierarki Supervisor (head = Pak Winaryo, verifier = Pak Kusnan, operational = Pak Denny)
+            'supervisor_level' => ['nullable', 'string', 'in:head,verifier,operational'],
         ];
     }
 

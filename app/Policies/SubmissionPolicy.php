@@ -17,6 +17,7 @@ class SubmissionPolicy
             return true;
         }
 
+        // PIC hanya baca (monitoring ruangan kelolaannya); tidak terlibat verifikasi/approval.
         if ($user->hasRole(RoleEnum::PIC)) {
             $task = $submission->task;
             if (!$task) {

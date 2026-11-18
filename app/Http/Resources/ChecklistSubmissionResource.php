@@ -2,11 +2,46 @@
 
 namespace App\Http\Resources;
 
+use App\Models\ChecklistTemplateItem;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class ChecklistSubmissionResource extends JsonResource
 {
+    /**
+     * Detail SOP item checklist. Item jadwal dibuat dari template berdasarkan nama_item,
+     * sehingga SOP dicari dari item template dengan nama sama (prioritas template ruangan).
+     */
+    private function sopFor(?string $namaItem): ?array
+    {
+        if (!$namaItem) {
+            return null;
+        }
+        $key = mb_strtolower(trim($namaItem));
+        $templateId = $this->task?->room?->checklist_template_id;
+
+        // Cache per request (bukan static) agar perubahan template langsung terbaca di request berikutnya
+        $attrs = request()->attributes;
+        if (!$attrs->has('sop_map')) {
+            $attrs->set('sop_map', ChecklistTemplateItem::query()
+                ->whereNotNull('deskripsi')->where('deskripsi', '!=', '')
+                ->with('template:id,nama_template')
+                ->get(['id', 'checklist_template_id', 'nama_item', 'deskripsi'])
+                ->groupBy(fn ($i) => mb_strtolower(trim($i->nama_item))));
+        }
+
+        $candidates = $attrs->get('sop_map')->get($key);
+        if (!$candidates || $candidates->isEmpty()) {
+            return null;
+        }
+        $pick = $candidates->firstWhere('checklist_template_id', $templateId) ?? $candidates->first();
+
+        return [
+            'description' => $pick->deskripsi,
+            'template_name' => $pick->template?->nama_template,
+        ];
+    }
+
     public function toArray(Request $request): array
     {
         return [
@@ -34,6 +69,7 @@ class ChecklistSubmissionResource extends JsonResource
                     'name' => $res->checklistItem?->nama_item,
                 ],
                 'nama_item' => $res->checklistItem?->nama_item,
+                'sop' => $this->sopFor($res->checklistItem?->nama_item),
                 'is_done' => (bool)$res->is_done,
                 'status' => (bool)$res->is_done,
                 'catatan' => $res->catatan,
@@ -45,12 +81,15 @@ class ChecklistSubmissionResource extends JsonResource
                 'jenis' => $m->jenis,
                 'kode_material' => $m->kode_material,
             ]) : [],
-            'foto_after_url' => url("/api/v1/submissions/{$this->id}/foto-after-1"),
-            'foto_after_1_url' => url("/api/v1/submissions/{$this->id}/foto-after-1"),
+            // Foto After opsional (maks. 1 foto untuk input baru). Laporan lama dapat memiliki foto_after_2..4.
+            'has_foto_after' => !empty($this->foto_after_1) || !empty($this->foto_after),
+            'foto_after_url' => (!empty($this->foto_after_1) || !empty($this->foto_after)) ? url("/api/v1/submissions/{$this->id}/foto-after-1") : null,
+            'foto_after_1_url' => (!empty($this->foto_after_1) || !empty($this->foto_after)) ? url("/api/v1/submissions/{$this->id}/foto-after-1") : null,
             'foto_after_2_url' => $this->foto_after_2 ? url("/api/v1/submissions/{$this->id}/foto-after-2") : null,
             'foto_after_3_url' => $this->foto_after_3 ? url("/api/v1/submissions/{$this->id}/foto-after-3") : null,
             'foto_after_4_url' => $this->foto_after_4 ? url("/api/v1/submissions/{$this->id}/foto-after-4") : null,
             'has_multiple_photos' => !empty($this->foto_after_2) || !empty($this->foto_after_3) || !empty($this->foto_after_4),
+            'workflow' => app(\App\Services\VerificationWorkflowService::class)->describe($this->resource, $request->user()),
             'latitude' => $this->latitude,
             'longitude' => $this->longitude,
             'gps_accuracy' => $this->gps_accuracy,

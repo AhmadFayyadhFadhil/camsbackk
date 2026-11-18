@@ -15,6 +15,7 @@ use App\Enums\TaskStatusEnum;
 use App\Enums\SubmissionStatusEnum;
 use App\Services\NotificationService;
 use App\Services\AuditLogService;
+use App\Services\VerificationWorkflowService;
 use App\Helpers\ShiftValidatorHelper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +25,10 @@ use Illuminate\Support\Str;
 class SubmissionController extends Controller
 {
     use ApiResponse;
+
+    public function __construct(private VerificationWorkflowService $workflow)
+    {
+    }
 
     /**
      * Scan QR Code atau Mulai pengerjaan task secara langsung.
@@ -235,7 +240,7 @@ class SubmissionController extends Controller
                     return $this->error('Tugas kebersihan ruangan ini sudah selesai dikerjakan.', [], 400);
                 }
                 if ($firstActiveTask && $firstActiveTask->status === TaskStatusEnum::WAITING_VERIFICATION) {
-                    return $this->error('Laporan tugas kebersihan ruangan ini sedang menunggu verifikasi dari PIC.', [], 400);
+                    return $this->error('Laporan tugas kebersihan ruangan ini sedang menunggu verifikasi Supervisor.', [], 400);
                 }
                 if ($firstActiveTask && $firstActiveTask->status === TaskStatusEnum::IN_PROGRESS) {
                     return $this->error('Tugas ruangan ini sedang dikerjakan oleh CS lain saat ini.', [], 400);
@@ -364,10 +369,9 @@ class SubmissionController extends Controller
             'results.*.catatan' => ['nullable', 'string'],
             'material_ids' => ['nullable', 'array'],
             'material_ids.*' => ['uuid', 'exists:cleaning_materials,id'],
-            'foto_after_1' => ['required', 'image', 'max:1024'], // 1MB limit (Foto Utama Tampak Keseluruhan)
-            'foto_after_2' => ['nullable', 'image', 'max:1024'],
-            'foto_after_3' => ['nullable', 'image', 'max:1024'],
-            'foto_after_4' => ['nullable', 'image', 'max:1024'],
+            // Foto After OPSIONAL, maksimal 1 foto untuk input baru (1MB). foto_after_2..4 tidak lagi diterima.
+            'foto_after_1' => ['nullable', 'image', 'max:1024'],
+            'foto_after' => ['nullable', 'image', 'max:1024'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'gps_accuracy' => ['nullable', 'numeric'],
@@ -399,15 +403,10 @@ class SubmissionController extends Controller
             return $this->error('Laporan untuk tugas ini sudah pernah diserahkan. Gunakan endpoint resubmit jika ingin memperbarui.', [], 400);
         }
 
-        // Membaca file gambar sebagai biner (foto_after_1 wajib, foto 2-4 opsional)
-        $fotoAfter1 = file_get_contents($request->file('foto_after_1')->getRealPath());
-        $fotoAfter1Mime = $request->file('foto_after_1')->getMimeType();
-        $fotoAfter2 = $request->hasFile('foto_after_2') ? file_get_contents($request->file('foto_after_2')->getRealPath()) : null;
-        $fotoAfter2Mime = $request->hasFile('foto_after_2') ? $request->file('foto_after_2')->getMimeType() : null;
-        $fotoAfter3 = $request->hasFile('foto_after_3') ? file_get_contents($request->file('foto_after_3')->getRealPath()) : null;
-        $fotoAfter3Mime = $request->hasFile('foto_after_3') ? $request->file('foto_after_3')->getMimeType() : null;
-        $fotoAfter4 = $request->hasFile('foto_after_4') ? file_get_contents($request->file('foto_after_4')->getRealPath()) : null;
-        $fotoAfter4Mime = $request->hasFile('foto_after_4') ? $request->file('foto_after_4')->getMimeType() : null;
+        // Foto After opsional (maks. 1 foto). Field foto_after_1 atau foto_after (alias) diterima.
+        $afterFile = $request->file('foto_after_1') ?? $request->file('foto_after');
+        $fotoAfter1 = $afterFile ? file_get_contents($afterFile->getRealPath()) : null;
+        $fotoAfter1Mime = $afterFile ? $afterFile->getMimeType() : null;
 
         // Validasi Geofence GPS
         $geofenceError = '';
@@ -421,13 +420,7 @@ class SubmissionController extends Controller
             $representativeTask,
             $tasks,
             $fotoAfter1,
-            $fotoAfter1Mime,
-            $fotoAfter2,
-            $fotoAfter2Mime,
-            $fotoAfter3,
-            $fotoAfter3Mime,
-            $fotoAfter4,
-            $fotoAfter4Mime
+            $fotoAfter1Mime
         ) {
             // 1. Buat ChecklistSubmission
             $submission = ChecklistSubmission::create([
@@ -443,12 +436,6 @@ class SubmissionController extends Controller
                 'foto_after_mime' => $fotoAfter1Mime,
                 'foto_after_1' => $fotoAfter1,
                 'foto_after_1_mime' => $fotoAfter1Mime,
-                'foto_after_2' => $fotoAfter2,
-                'foto_after_2_mime' => $fotoAfter2Mime,
-                'foto_after_3' => $fotoAfter3,
-                'foto_after_3_mime' => $fotoAfter3Mime,
-                'foto_after_4' => $fotoAfter4,
-                'foto_after_4_mime' => $fotoAfter4Mime,
                 'latitude' => $request->latitude,
                 'longitude' => $request->longitude,
                 'gps_accuracy' => $request->gps_accuracy,
@@ -480,28 +467,15 @@ class SubmissionController extends Controller
                 AuditLogService::log('UPDATE_TASK_STATUS_TO_WAITING_VERIFICATION', 'tasks', $task->id, $oldTask, $task->toArray());
             }
 
-            // 5. Kirim notifikasi ke PIC aktif ruangan tersebut
-            $pic = $representativeTask->room?->pic;
-            if ($pic) {
-                NotificationService::send(
-                    $pic->id,
-                    'CHECKLIST_SUBMITTED',
-                    "Laporan Baru: " . ($representativeTask->room?->nama_ruangan ?? 'Ruangan'),
-                    "CS {$user->full_name} telah menyerahkan laporan kebersihan untuk ruang " . ($representativeTask->room?->nama_ruangan ?? ''),
-                    [
-                        'submission_id' => $submission->id,
-                        'room_name' => $representativeTask->room?->nama_ruangan,
-                        'cs_name' => $user->full_name,
-                    ],
-                    'both'
-                );
-            }
+            // 5. Arahkan ke Supervisor Verifikator (Pak Kusnan) atau langsung ke Supervisor tertinggi bila tidak bertugas.
+            //    PIC Ruangan tidak lagi terlibat. SLA 24 jam kalender dihitung sejak submitted_at.
+            $this->workflow->routeSubmission($submission);
 
             AuditLogService::log('SUBMIT_CHECKLIST_REPORT', 'checklist_submissions', $submission->id, null, $submission->load(['results', 'materials'])->toArray());
 
             return $this->success(
                 new ChecklistSubmissionResource($submission->load(['results.checklistItem', 'materials'])),
-                'Laporan kebersihan berhasil diserahkan. Menunggu verifikasi PIC.',
+                'Laporan kebersihan berhasil diserahkan. Menunggu verifikasi Supervisor.',
                 201
             );
         });
@@ -525,10 +499,9 @@ class SubmissionController extends Controller
             'results.*.catatan' => ['nullable', 'string'],
             'material_ids' => ['nullable', 'array'],
             'material_ids.*' => ['uuid', 'exists:cleaning_materials,id'],
-            'foto_after_1' => ['required', 'image', 'max:1024'], // 1MB limit (Foto Utama Tampak Keseluruhan)
-            'foto_after_2' => ['nullable', 'image', 'max:1024'],
-            'foto_after_3' => ['nullable', 'image', 'max:1024'],
-            'foto_after_4' => ['nullable', 'image', 'max:1024'],
+            // Foto After OPSIONAL, maksimal 1 foto untuk input baru (1MB). foto_after_2..4 tidak lagi diterima.
+            'foto_after_1' => ['nullable', 'image', 'max:1024'],
+            'foto_after' => ['nullable', 'image', 'max:1024'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'gps_accuracy' => ['nullable', 'numeric'],
@@ -554,15 +527,10 @@ class SubmissionController extends Controller
             return $this->error('Tidak ada tugas berstatus "rejected" untuk laporan ini.', [], 400);
         }
 
-        // Membaca file gambar sebagai biner (foto_after_1 wajib, foto 2-4 opsional)
-        $fotoAfter1 = file_get_contents($request->file('foto_after_1')->getRealPath());
-        $fotoAfter1Mime = $request->file('foto_after_1')->getMimeType();
-        $fotoAfter2 = $request->hasFile('foto_after_2') ? file_get_contents($request->file('foto_after_2')->getRealPath()) : null;
-        $fotoAfter2Mime = $request->hasFile('foto_after_2') ? $request->file('foto_after_2')->getMimeType() : null;
-        $fotoAfter3 = $request->hasFile('foto_after_3') ? file_get_contents($request->file('foto_after_3')->getRealPath()) : null;
-        $fotoAfter3Mime = $request->hasFile('foto_after_3') ? $request->file('foto_after_3')->getMimeType() : null;
-        $fotoAfter4 = $request->hasFile('foto_after_4') ? file_get_contents($request->file('foto_after_4')->getRealPath()) : null;
-        $fotoAfter4Mime = $request->hasFile('foto_after_4') ? $request->file('foto_after_4')->getMimeType() : null;
+        // Foto After opsional (maks. 1 foto). Field foto_after_1 atau foto_after (alias) diterima.
+        $afterFile = $request->file('foto_after_1') ?? $request->file('foto_after');
+        $fotoAfter1 = $afterFile ? file_get_contents($afterFile->getRealPath()) : null;
+        $fotoAfter1Mime = $afterFile ? $afterFile->getMimeType() : null;
 
         // Validasi Geofence GPS
         $geofenceError = '';
@@ -576,13 +544,7 @@ class SubmissionController extends Controller
             $submission,
             $tasks,
             $fotoAfter1,
-            $fotoAfter1Mime,
-            $fotoAfter2,
-            $fotoAfter2Mime,
-            $fotoAfter3,
-            $fotoAfter3Mime,
-            $fotoAfter4,
-            $fotoAfter4Mime
+            $fotoAfter1Mime
         ) {
             $oldSubmission = $submission->toArray();
 
@@ -592,21 +554,21 @@ class SubmissionController extends Controller
                 'resubmit_count' => $submission->resubmit_count + 1,
                 'catatan_cs' => $request->catatan_cs,
                 'status' => SubmissionStatusEnum::SUBMITTED,
-                'foto_after' => $fotoAfter1,
-                'foto_after_mime' => $fotoAfter1Mime,
-                'foto_after_1' => $fotoAfter1,
-                'foto_after_1_mime' => $fotoAfter1Mime,
-                'foto_after_2' => $fotoAfter2,
-                'foto_after_2_mime' => $fotoAfter2Mime,
-                'foto_after_3' => $fotoAfter3,
-                'foto_after_3_mime' => $fotoAfter3Mime,
-                'foto_after_4' => $fotoAfter4,
-                'foto_after_4_mime' => $fotoAfter4Mime,
                 'latitude' => $request->latitude,
                 'longitude' => $request->longitude,
                 'gps_accuracy' => $request->gps_accuracy,
                 'gps_captured_at' => $request->gps_captured_at ? \Illuminate\Support\Carbon::parse($request->gps_captured_at) : null,
             ]);
+
+            // Foto After opsional: hanya diganti bila CS melampirkan foto baru (foto lama dipertahankan)
+            if ($fotoAfter1 !== null) {
+                $submission->update([
+                    'foto_after' => $fotoAfter1,
+                    'foto_after_mime' => $fotoAfter1Mime,
+                    'foto_after_1' => $fotoAfter1,
+                    'foto_after_1_mime' => $fotoAfter1Mime,
+                ]);
+            }
 
             // 2. Hapus results lama dan buat baru
             ChecklistResult::where('submission_id', $submission->id)->delete();
@@ -634,28 +596,14 @@ class SubmissionController extends Controller
                 AuditLogService::log('UPDATE_TASK_STATUS_TO_WAITING_VERIFICATION', 'tasks', $task->id, $oldTask, $task->toArray());
             }
 
-            // 5. Kirim notifikasi ke PIC aktif ruangan tersebut
-            $pic = $submission->task?->room?->pic;
-            if ($pic) {
-                NotificationService::send(
-                    $pic->id,
-                    'CHECKLIST_SUBMITTED',
-                    "Laporan Diserahkan Kembali: " . ($submission->task?->room?->nama_ruangan ?? 'Ruangan'),
-                    "CS {$user->full_name} telah menyerahkan kembali laporan kebersihan untuk ruang " . ($submission->task?->room?->nama_ruangan ?? ''),
-                    [
-                        'submission_id' => $submission->id,
-                        'room_name' => $submission->task?->room?->nama_ruangan,
-                        'cs_name' => $user->full_name,
-                    ],
-                    'both'
-                );
-            }
+            // 5. Arahkan ulang ke Supervisor Verifikator / Supervisor tertinggi (SLA 24 jam dihitung ulang dari submit ulang).
+            $this->workflow->routeSubmission($submission->refresh());
 
             AuditLogService::log('RESUBMIT_CHECKLIST_REPORT', 'checklist_submissions', $submission->id, $oldSubmission, $submission->load(['results', 'materials'])->toArray());
 
             return $this->success(
                 new ChecklistSubmissionResource($submission->load(['results.checklistItem', 'materials'])),
-                'Laporan kebersihan berhasil diserahkan kembali. Menunggu verifikasi PIC.'
+                'Laporan kebersihan berhasil diserahkan kembali. Menunggu verifikasi Supervisor.'
             );
         });
     }
@@ -742,11 +690,13 @@ class SubmissionController extends Controller
     {
         $submission = ChecklistSubmission::findOrFail($id);
         Gate::authorize('view', $submission);
-        if (!$submission->foto_after_1) {
-            return $this->error('Foto after 1 tidak ditemukan.', [], 404);
+        // Data lama mungkin hanya mengisi kolom foto_after (tanpa foto_after_1)
+        $blob = $submission->foto_after_1 ?: $submission->foto_after;
+        if (!$blob) {
+            return $this->error('Foto after tidak ditemukan.', [], 404);
         }
-        $mimeType = $submission->foto_after_1_mime ?? 'image/jpeg';
-        return response($submission->foto_after_1, 200)
+        $mimeType = ($submission->foto_after_1 ? $submission->foto_after_1_mime : $submission->foto_after_mime) ?? 'image/jpeg';
+        return response($blob, 200)
             ->header('Content-Type', $mimeType)
             ->header('Content-Disposition', 'inline; filename="after_1_' . $submission->id . '.jpg"');
     }

@@ -164,6 +164,9 @@ class DashboardController extends Controller
             ];
         });
 
+        // Ringkasan workflow verifikasi bersifat per-pengguna & real-time (tidak ikut cache 60 detik)
+        $data['verification_workflow'] = app(\App\Services\VerificationWorkflowService::class)->summary($request->user());
+
         return $this->success($data, 'Data dashboard supervisor berhasil diambil.');
     }
 
@@ -262,7 +265,7 @@ class DashboardController extends Controller
                 ];
             });
 
-            // 4. Antrean Verifikasi Tertunda (Pending Submissions) kelolaan
+            // 4. Laporan kelolaan yang sedang dalam proses verifikasi Supervisor (info saja; PIC tidak memverifikasi)
             $pendingVerificationsCount = ChecklistSubmission::where('status', SubmissionStatusEnum::SUBMITTED)
                 ->whereHas('task', function ($q) use ($roomIds) {
                     $q->whereIn('room_id', $roomIds);

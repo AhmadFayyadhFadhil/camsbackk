@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use App\Enums\SubmissionStatusEnum;
+use App\Enums\VerificationStageEnum;
 
 class ChecklistSubmission extends Model
 {
@@ -42,6 +43,15 @@ class ChecklistSubmission extends Model
         'longitude',
         'gps_accuracy',
         'gps_captured_at',
+        'verification_stage',
+        'verifier_id',
+        'verification_deadline_at',
+        'verified_at',
+        'verified_by',
+        'redirected_at',
+        'redirect_reason',
+        'final_approved_at',
+        'final_approved_by',
     ];
 
     protected $hidden = [
@@ -58,6 +68,10 @@ class ChecklistSubmission extends Model
         'status' => SubmissionStatusEnum::class,
         'resubmit_count' => 'integer',
         'gps_captured_at' => 'datetime',
+        'verification_deadline_at' => 'datetime',
+        'verified_at' => 'datetime',
+        'redirected_at' => 'datetime',
+        'final_approved_at' => 'datetime',
     ];
 
     public function task(): BelongsTo
@@ -68,6 +82,47 @@ class ChecklistSubmission extends Model
     public function cs(): BelongsTo
     {
         return $this->belongsTo(User::class, 'cs_user_id');
+    }
+
+    /** Penangani tahap verifikasi saat ini (Pak Kusnan, atau Pak Winaryo bila dialihkan). */
+    public function verifier(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'verifier_id');
+    }
+
+    public function verifiedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'verified_by');
+    }
+
+    public function finalApprover(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'final_approved_by');
+    }
+
+    public function redirects(): HasMany
+    {
+        return $this->hasMany(SubmissionRedirect::class, 'submission_id');
+    }
+
+    /**
+     * Tahap workflow efektif. Data lama (verification_stage null) diturunkan dari status:
+     * submitted => menunggu verifikasi, approved => selesai, rejected => dikembalikan.
+     */
+    public function effectiveStage(): VerificationStageEnum
+    {
+        if ($this->verification_stage) {
+            $stage = VerificationStageEnum::tryFrom($this->verification_stage);
+            if ($stage) {
+                return $stage;
+            }
+        }
+
+        return match ($this->status) {
+            SubmissionStatusEnum::APPROVED => VerificationStageEnum::COMPLETED,
+            SubmissionStatusEnum::REJECTED => VerificationStageEnum::REJECTED,
+            default => VerificationStageEnum::PENDING_VERIFICATION,
+        };
     }
 
     public function results(): HasMany

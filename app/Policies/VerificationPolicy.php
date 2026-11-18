@@ -6,36 +6,20 @@ use App\Models\User;
 use App\Models\Verification;
 use App\Models\ChecklistSubmission;
 use App\Enums\RoleEnum;
+use App\Services\VerificationWorkflowService;
 
+/**
+ * Workflow Checklist Harian: PIC Ruangan tidak terlibat dalam verifikasi maupun approval.
+ * Hak verifikasi/approval ditentukan oleh level hierarki Supervisor (lihat VerificationWorkflowService::actionFor).
+ */
 class VerificationPolicy
 {
     /**
-     * Determine whether the user can create verifications for a submission.
+     * Boleh memverifikasi / approval akhir hanya bila punya aksi pada tahap laporan saat ini.
      */
     public function create(User $user, ChecklistSubmission $submission): bool
     {
-        if ($user->hasRole(RoleEnum::ADMIN) || $user->hasRole(RoleEnum::SUPERVISOR)) {
-            return true;
-        }
-
-        if ($user->hasRole(RoleEnum::PIC)) {
-            $task = $submission->task;
-            if (!$task) {
-                return false;
-            }
-            if ($task->room && $task->room->pic_user_id === $user->id) {
-                return true;
-            }
-            return $user->picHistories()
-                ->where('room_id', $task->room_id)
-                ->where(function ($query) {
-                    $query->whereNull('tanggal_selesai')
-                          ->orWhere('tanggal_selesai', '>=', today()->toDateString());
-                })
-                ->exists();
-        }
-
-        return false;
+        return app(VerificationWorkflowService::class)->actionFor($user, $submission) !== null;
     }
 
     /**
@@ -53,24 +37,7 @@ class VerificationPolicy
         }
 
         if ($user->hasRole(RoleEnum::CS)) {
-            return $submission->user_id === $user->id;
-        }
-
-        if ($user->hasRole(RoleEnum::PIC)) {
-            $task = $submission->task;
-            if (!$task) {
-                return false;
-            }
-            if ($task->room && $task->room->pic_user_id === $user->id) {
-                return true;
-            }
-            return $user->picHistories()
-                ->where('room_id', $task->room_id)
-                ->where(function ($query) {
-                    $query->whereNull('tanggal_selesai')
-                          ->orWhere('tanggal_selesai', '>=', today()->toDateString());
-                })
-                ->exists();
+            return $submission->cs_user_id === $user->id;
         }
 
         return false;

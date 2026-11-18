@@ -181,9 +181,16 @@ Route::prefix('v1')->group(function () {
         Route::get('submissions/{id}/foto-after-4', [SubmissionController::class, 'streamFotoAfter4']);
 
         // Modul Verifikasi (Verification)
-        Route::get('verifications/pending', [VerificationController::class, 'pending']);
-        Route::post('verifications/{submissionId}/approve', [VerificationController::class, 'approve']);
-        Route::post('verifications/{submissionId}/reject', [VerificationController::class, 'reject']);
+        // Workflow Checklist Harian: CS submit -> Pak Kusnan verifikasi -> Pak Winaryo approval akhir.
+        // PIC tidak terlibat. Hak aksi per tahap divalidasi di VerificationWorkflowService (level hierarki Supervisor).
+        Route::middleware('role:admin,supervisor')->group(function () {
+            Route::get('verifications/pending', [VerificationController::class, 'pending']);
+            Route::get('verifications/workflow-summary', [VerificationController::class, 'workflowSummary']);
+            Route::get('verifications/verifier-duty-logs', [VerificationController::class, 'verifierDutyLogs']);
+            Route::patch('verifications/verifier-duty', [VerificationController::class, 'setVerifierDuty']);
+            Route::post('verifications/{submissionId}/approve', [VerificationController::class, 'approve']);
+            Route::post('verifications/{submissionId}/reject', [VerificationController::class, 'reject']);
+        });
         Route::get('verifications/{id}/foto-inspeksi', [VerificationController::class, 'streamFotoInspeksi']);
 
         // Modul Temuan Masalah (Findings)

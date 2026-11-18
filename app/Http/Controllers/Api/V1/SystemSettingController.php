@@ -145,6 +145,19 @@ class SystemSettingController extends Controller
             'settings.*.value' => ['required', 'string'],
         ]);
 
+        // SLA verifikasi Checklist Harian: hanya Admin / Supervisor tertinggi, bilangan bulat 1-720 jam kalender
+        foreach ($request->settings as $item) {
+            if ($item['key'] === 'verification_sla_hours') {
+                $actor = $request->user();
+                if (!$actor->hasRole('admin') && !$actor->isHeadSupervisor()) {
+                    return $this->error('Hanya Admin atau Supervisor tertinggi yang dapat mengubah SLA verifikasi.', [], 403);
+                }
+                if (!ctype_digit((string) $item['value']) || (int) $item['value'] < 1 || (int) $item['value'] > 720) {
+                    return $this->error('SLA verifikasi harus berupa bilangan bulat 1-720 jam kalender.', [], 422);
+                }
+            }
+        }
+
         foreach ($request->settings as $item) {
             $setting = SystemSetting::where('key', $item['key'])->first();
             if ($setting) {

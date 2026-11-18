@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             RoleSeeder::class,
             ShiftSeeder::class,
             AdminSeeder::class,
+            ChecklistVerificationHierarchySeeder::class, // hierarki Supervisor (aman diulang; tidak membuat akun tanpa username/email di .env)
         ]);
     }
 }

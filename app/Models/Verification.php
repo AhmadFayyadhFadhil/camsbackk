@@ -18,6 +18,7 @@ class Verification extends Model
         'submission_id',
         'verified_by',
         'role_verifier',
+        'stage',
         'status',
         'catatan_perbaikan',
         'foto_inspeksi_path',

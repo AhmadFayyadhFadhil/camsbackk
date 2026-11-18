@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use App\Enums\RoleEnum;
+use App\Enums\SupervisorLevelEnum;
 
 class User extends Authenticatable
 {
@@ -29,6 +30,8 @@ class User extends Authenticatable
         'foto_profile',
         'is_active',
         'last_login_at',
+        'supervisor_level',
+        'is_on_duty',
     ];
 
     protected $hidden = [
@@ -37,6 +40,7 @@ class User extends Authenticatable
 
     protected $casts = [
         'is_active' => 'boolean',
+        'is_on_duty' => 'boolean',
         'last_login_at' => 'datetime',
     ];
 
@@ -56,6 +60,35 @@ class User extends Authenticatable
     {
         $roleName = $role instanceof RoleEnum ? $role->value : $role;
         return $this->roles()->where('name', $roleName)->exists();
+    }
+
+    /**
+     * Level hierarki Supervisor (head | verifier | operational). Null bila bukan supervisor / belum diatur.
+     */
+    public function supervisorLevel(): ?SupervisorLevelEnum
+    {
+        if (empty($this->supervisor_level) || !$this->hasRole(RoleEnum::SUPERVISOR)) {
+            return null;
+        }
+        return SupervisorLevelEnum::tryFrom($this->supervisor_level);
+    }
+
+    /** Pak Winaryo: Supervisor tertinggi (approval akhir). */
+    public function isHeadSupervisor(): bool
+    {
+        return $this->supervisorLevel() === SupervisorLevelEnum::HEAD;
+    }
+
+    /** Pak Kusnan: Supervisor Verifikator Checklist Harian. */
+    public function isVerifierSupervisor(): bool
+    {
+        return $this->supervisorLevel() === SupervisorLevelEnum::VERIFIER;
+    }
+
+    /** Pak Denny: Supervisor operasional (tanpa hak verifikasi/approval Checklist Harian). */
+    public function isOperationalSupervisor(): bool
+    {
+        return $this->supervisorLevel() === SupervisorLevelEnum::OPERATIONAL;
     }
 
     public function userRoles(): HasMany

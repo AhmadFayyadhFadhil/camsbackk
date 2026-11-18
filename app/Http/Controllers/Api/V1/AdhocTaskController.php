@@ -137,11 +137,11 @@ class AdhocTaskController extends Controller
         // Kirim notifikasi real-time ke CS
         $notifTitle = $taskType === 'scheduled_event' 
             ? "Tugas Terjadwal / Persiapan Acara: {$task->judul}"
-            : "Tugas Mendadak: {$task->judul}";
+            : "Tugas Tambahan: {$task->judul}";
 
         $notifMsg = $taskType === 'scheduled_event'
             ? "Supervisor {$request->user()->full_name} menugaskan persiapan acara/meeting: {$task->judul}. Target Selesai: " . ($task->due_datetime ? $task->due_datetime->format('d M Y H:i') : 'Sesuai Jadwal')
-            : "Supervisor {$request->user()->full_name} memberikan tugas mendadak: {$task->judul}. Prioritas: " . strtoupper($task->priority);
+            : "Supervisor {$request->user()->full_name} memberikan tugas tambahan: {$task->judul}. Prioritas: " . strtoupper($task->priority);
 
         NotificationService::send(
             $task->cs_user_id,
