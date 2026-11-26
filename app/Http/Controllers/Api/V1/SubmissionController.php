@@ -385,21 +385,25 @@ class SubmissionController extends Controller
             return $this->error('Akses ditolak. Tugas ini tidak ditugaskan kepada Anda.', [], 403);
         }
 
-        // Ambil semua tasks in_progress untuk CS, ruangan, shift, dan tanggal yang sama
+        // Ambil semua tasks in_progress / rejected untuk CS, ruangan, shift, dan tanggal yang sama
         $tasks = Task::where('room_id', $representativeTask->room_id)
             ->where('cs_user_id', $user->id)
             ->where('shift_id', $representativeTask->shift_id)
             ->where('tanggal_task', $representativeTask->tanggal_task)
-            ->where('status', TaskStatusEnum::IN_PROGRESS)
+            ->whereIn('status', [TaskStatusEnum::IN_PROGRESS, TaskStatusEnum::REJECTED])
             ->get();
 
         if ($tasks->isEmpty()) {
             return $this->error('Tugas harus berstatus "in_progress" sebelum dapat diserahkan.', [], 400);
         }
 
-        // Cek jika submission sudah pernah ada untuk representative task (untuk resubmit lewat endpoint resubmit)
-        $existingSubmission = ChecklistSubmission::where('task_id', $representativeTask->id)->first();
+        // Cek jika submission sudah pernah ada untuk ruangan/shift/tanggal tugas ini
+        $existingSubmission = ChecklistSubmission::whereIn('task_id', $tasks->pluck('id'))->first()
+            ?? ChecklistSubmission::where('task_id', $representativeTask->id)->first();
         if ($existingSubmission) {
+            if ($existingSubmission->status === SubmissionStatusEnum::REJECTED || $tasks->contains(fn($t) => $t->status === TaskStatusEnum::IN_PROGRESS || $t->status === TaskStatusEnum::REJECTED)) {
+                return $this->processExistingResubmit($request, $existingSubmission, $tasks);
+            }
             return $this->error('Laporan untuk tugas ini sudah pernah diserahkan. Gunakan endpoint resubmit jika ingin memperbarui.', [], 400);
         }
 
@@ -515,17 +519,28 @@ class SubmissionController extends Controller
             return $this->error('Laporan hanya bisa diserahkan kembali jika sebelumnya ditolak.', [], 400);
         }
 
-        // Ambil semua tasks (yang berstatus rejected) untuk CS, ruangan, shift, dan tanggal yang sama
+        // Ambil semua tasks (yang berstatus rejected atau in_progress setelah di-scan ulang) untuk CS, ruangan, shift, dan tanggal yang sama
         $tasks = Task::where('room_id', $representativeTask->room_id)
             ->where('cs_user_id', $user->id)
             ->where('shift_id', $representativeTask->shift_id)
             ->where('tanggal_task', $representativeTask->tanggal_task)
-            ->where('status', TaskStatusEnum::REJECTED)
+            ->whereIn('status', [TaskStatusEnum::REJECTED, TaskStatusEnum::IN_PROGRESS])
             ->get();
 
         if ($tasks->isEmpty()) {
             return $this->error('Tidak ada tugas berstatus "rejected" untuk laporan ini.', [], 400);
         }
+
+        return $this->processExistingResubmit($request, $submission, $tasks);
+    }
+
+    /**
+     * Memproses pengiriman ulang (resubmit) pada submission existing.
+     */
+    private function processExistingResubmit(Request $request, ChecklistSubmission $submission, $tasks)
+    {
+        $user = $request->user();
+        $representativeTask = $submission->task ?? $tasks->first();
 
         // Foto After opsional (maks. 1 foto). Field foto_after_1 atau foto_after (alias) diterima.
         $afterFile = $request->file('foto_after_1') ?? $request->file('foto_after');

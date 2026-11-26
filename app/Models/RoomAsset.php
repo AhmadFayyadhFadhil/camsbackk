@@ -20,6 +20,7 @@ class RoomAsset extends Model
         'nama_aset',
         'kode_aset',
         'jumlah',
+        'foto_aset',
         'status', // active, damaged, repaired
     ];
 

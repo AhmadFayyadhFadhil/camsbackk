@@ -28,8 +28,9 @@ class MailService
     public static function sendNotificationMail($user, string $type, string $title, string $message, array $data = []): void
     {
         $mailable = null;
+        $normalizedType = strtolower(trim($type));
 
-        switch ($type) {
+        switch ($normalizedType) {
             case 'checklist_submitted':
                 $mailable = new ChecklistSubmittedMail($title, $message, $data);
                 break;
@@ -46,9 +47,12 @@ class MailService
                 $mailable = new TaskOverdueMail($title, $message, $data);
                 break;
             case 'escalation_pic':
+            case 'checklist_redirected':
                 $mailable = new EscalationPicMail($title, $message, $data);
                 break;
             case 'finding_reported':
+            case 'finding_assigned':
+            case 'finding_overdue':
                 $mailable = new FindingReportedMail($title, $message, $data);
                 break;
             case 'password_reset':

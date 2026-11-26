@@ -589,6 +589,8 @@ class RoomAssetAuditController extends Controller
                             'category' => $a->category,
                             'kondisi' => $a->kondisi,
                             'jumlah' => (int)$a->jumlah,
+                            'foto_aset' => $a->foto_aset,
+                            'foto_url' => $a->foto_aset ? url("/api/v1/room-assets/{$a->id}/foto") . '?v=' . ($a->updated_at?->timestamp ?? time()) : null,
                             'status' => $a->status,
                         ];
                     }),
@@ -650,6 +652,8 @@ class RoomAssetAuditController extends Controller
                         'category' => $a->category,
                         'kondisi' => $a->kondisi,
                         'jumlah' => (int)$a->jumlah,
+                        'foto_aset' => $a->foto_aset,
+                        'foto_url' => $a->foto_aset ? url("/api/v1/room-assets/{$a->id}/foto") . '?v=' . ($a->updated_at?->timestamp ?? time()) : null,
                         'status' => $a->status,
                     ];
                 }),

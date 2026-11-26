@@ -77,6 +77,7 @@ Route::prefix('v1')->group(function () {
 
             // Modul Aset Ruangan - Write
             Route::post('room-assets', [RoomAssetController::class, 'store']);
+            Route::post('room-assets/{id}', [RoomAssetController::class, 'update']);
             Route::put('room-assets/{id}', [RoomAssetController::class, 'update']);
             Route::patch('room-assets/{id}', [RoomAssetController::class, 'update']);
             Route::delete('room-assets/{id}', [RoomAssetController::class, 'destroy']);
@@ -125,6 +126,7 @@ Route::prefix('v1')->group(function () {
         Route::get('checklist-templates/{id}', [ChecklistTemplateController::class, 'show']);
         Route::get('room-assets', [RoomAssetController::class, 'index']);
         Route::get('room-assets/{id}', [RoomAssetController::class, 'show']);
+        Route::get('room-assets/{id}/foto', [RoomAssetController::class, 'streamFoto']);
         Route::get('cleaning-materials', [CleaningMaterialController::class, 'index']);
         Route::get('cleaning-materials/{id}', [CleaningMaterialController::class, 'show']);
         Route::get('sla-parameters', [SlaParameterController::class, 'index']);

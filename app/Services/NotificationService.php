@@ -29,6 +29,7 @@ class NotificationService
             'title' => $title,
             'message' => $message,
             'type' => $type,
+            'data' => $data,
             'is_read' => false,
             'channel' => NotificationChannelEnum::tryFrom($channel) ?? NotificationChannelEnum::BOTH,
         ]);
